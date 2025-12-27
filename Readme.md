@@ -57,11 +57,6 @@ cd build
 # 3. Configure and Build
 cmake ..
 make
-Running the Benchmark
-Execute the compiled binary mlwq_demo:
-
-Bash
-
 ./mlwq_demo
 
 ```
@@ -74,6 +69,7 @@ The program will run the full PKE suite in Scalar Mode followed by AVX2 Mode, ve
 
 ```
 === M-LWQ Comprehensive Performance Report ===
+M-LWQ-512 (NIST Level 1)
 N=256, K=2
 
 >>> Running: Scalar Mode (1000 rounds)...
@@ -84,53 +80,59 @@ N=256, K=2
 >>> PART 1: Internal Breakdown (Where is time spent?)
 
 --------------------------------------------------------------------------------------
- KeyGen Breakdown (Detailed)
+ PKE KeyGen Breakdown (Detailed)
 --------------------------------------------------------------------------------------
 Sub-Component       Scalar (cyc)   AVX2 (cyc)     Speedup        Scalar %
-GenMatrix (A)       27754          13898          2.00x          18.2%
-Sample (s)          5027           4647           1.08x          3.3%
-GenDither           14480          13758          1.05x          9.5%
-Arith (A*s)         101448         89632          1.13x          66.3%
-Quantize            4191           469            8.94x          2.7%
+GenMatrix (A)       29766          14509          2.05x          31.1%
+Sample (s)          6186           5095           1.21x          6.5%
+GenDither           14751          12786          1.15x          15.4%
+Arith (A*s)         44453          33164          1.34x          46.4%
+Quantize            577            679            0.85x          0.6%
 
 --------------------------------------------------------------------------------------
- Encrypt Breakdown (Detailed)
+ PKE Encrypt Breakdown (Detailed)
 --------------------------------------------------------------------------------------
 Sub-Component       Scalar (cyc)   AVX2 (cyc)     Speedup        Scalar %
-GenMatrix (A)       25904          13550          1.91x          11.7%
-Sample (r)          5425           4741           1.14x          2.4%
-GenDither           22529          21061          1.07x          10.1%
-Arith (u)           103194         91999          1.12x          46.4%
-Arith (v)           58289          48334          1.21x          26.2%
-Quantize            6972           940            7.42x          3.1%
+GenMatrix (A)       28984          13953          2.08x          20.9%
+Sample (r)          12305          12139          1.01x          8.9%
+GenDither           20898          21551          0.97x          15.1%
+Arith (u)           51218          32812          1.56x          36.9%
+Arith (v)           24705          19186          1.29x          17.8%
+Quantize            747            702            1.06x          0.5%
 
 --------------------------------------------------------------------------------------
- Decrypt Breakdown (Detailed)
+ PKE Decrypt Breakdown (Detailed)
 --------------------------------------------------------------------------------------
 Sub-Component       Scalar (cyc)   AVX2 (cyc)     Speedup        Scalar %
-DeQuantize          8352           3390           2.46x          12.5%
-Arith (v-su)        50017          45541          1.10x          74.6%
-Decode              8710           139            62.66x          13.0%
+DeQuantize          4064           3621           1.12x          16.1%
+Arith (v-su)        21011          16578          1.27x          83.3%
+Decode              144            127            1.13x          0.6%
 
 
 >>> PART 2: Core Component Comparison (Quantize vs Sample)
 ----------------------------------------------------------------------------------------------
 Component   Mode        Quantize        Sample          Alg. Efficiency       AVX Improvement     
 ----------------------------------------------------------------------------------------------
-PK / u      Scalar      3691            4201            1.13x                 1.00x (Ref)         
-PK / u      AVX2        246             4265            17.32x                15.00x              
-----------------------------------------------------------------------------------------------
-v (Poly)    Scalar      1618            2661            1.64x                 1.00x (Ref)         
-v (Poly)    AVX2        158             1900            11.97x                10.20x              
+PK / u      Scalar      286             4174            14.57x                1.00x (Ref)         
+PK / u      AVX2        256             4130            16.9x                 1.12x               
 
 
->>> PART 3: Full Flow Summary (Total Time)
+>>> PART 3: PKE Full Flow Summary (Total Time)
 ----------------------------------------------------------------------------------------------
 Operation           Scalar Cycles     AVX2 Cycles       Speedup
 ----------------------------------------------------------------------------------------------
-KeyGen              154790            124479            1.24x
-Encrypt             223969            182193            1.23x
-Decrypt             67719             49405             1.37x
+PKE KeyGen          94290             64201             1.47x
+PKE Encrypt         119502            88485             1.35x
+PKE Decrypt         24372             20641             1.18x
+
+
+>>> PART 4: KEM Full Flow Summary (IND-CCA2)
+----------------------------------------------------------------------------------------------
+Operation           Scalar Cycles     AVX2 Cycles       Speedup
+----------------------------------------------------------------------------------------------
+KEM KeyGen          110904            75820             1.46x
+KEM Encaps          146720            106138            1.38x
+KEM Decaps          159642            124261            1.28x
 ----------------------------------------------------------------------------------------------
 
 [FINAL] All checks passed! Implementation is correct.

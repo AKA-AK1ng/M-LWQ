@@ -1,37 +1,37 @@
 cmake_minimum_required(VERSION 3.10)
 project(M_LWQ_PKE CXX)
 
-# 设置 C++17 标准
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 
-# --- 关键修改：强制开启 AVX2, FMA 和 O3 优化 ---
+# 开启 AVX2 和 FMA 优化
 if(MSVC)
     add_compile_options(/arch:AVX2 /O2)
 else()
-    # Linux/macOS (GCC/Clang) 必须添加 -mavx2
-    # -march=native 会自动检测你本机 CPU 支持的所有指令集
-    add_compile_options(-mavx2 -mfma -O3 -march=native)
+    add_compile_options(-mavx2 -mfma -O3 -march=native -Wall -Wextra)
 endif()
 
-# 添加可执行文件
-add_executable(mlwq_demo
-    src/main.cpp
-    src/poly.cpp
-    src/random.cpp
-    src/mlwq.cpp
-    src/xof.cpp
-    src/sha3.cpp
-    src/ntt.cpp
-    src/keccak4x.cpp  # <--- 新增
-)
+include_directories(src)
 
-# 包含 src 目录作为头文件路径
-target_include_directories(mlwq_demo PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+# 1. 编译 Common 库 (公共组件)
+file(GLOB COMMON_SRC "src/common/*.cpp")
+add_library(mlwq_common STATIC ${COMMON_SRC})
 
-# 在 Linux/macOS 上链接数学库 (libm)
-if (NOT WIN32)
-    target_link_libraries(mlwq_demo PUBLIC m)
+# 2. 编译 Reference 库 (纯 C++)
+file(GLOB REF_SRC "src/ref/*.cpp")
+add_library(mlwq_ref STATIC ${REF_SRC})
+target_link_libraries(mlwq_ref mlwq_common)
+
+# 3. 编译 AVX2 库 (Intrinsics)
+# 注意：包含 keccak4x
+file(GLOB AVX_SRC "src/avx2/*.cpp")
+add_library(mlwq_avx2 STATIC ${AVX_SRC})
+target_link_libraries(mlwq_avx2 mlwq_common)
+
+# 4. 编译主程序
+add_executable(mlwq_bench src/main.cpp)
+target_link_libraries(mlwq_bench mlwq_ref mlwq_avx2 mlwq_common)
+
+if(NOT WIN32)
+    target_link_libraries(mlwq_bench m)
 endif()
-
-message(STATUS "Project configured with AVX2 support.")
