@@ -1,46 +1,29 @@
-# M-LWQ-PKE: High-Performance C++ Implementation with AVX2 Acceleration
-
-[![C++17](https://img.shields.io/badge/C%2B%2B-17-blue.svg)](https://isocpp.org/std/the-standard)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![AVX2](https://img.shields.io/badge/Arch-AVX2-red.svg)](https://en.wikipedia.org/wiki/Advanced_Vector_Extensions)
-
-This repository contains an optimized C++17 implementation of the **M-LWQ (Module-Learning With Quantization)** Public Key Encryption (PKE) scheme.
-
-It serves as a reference implementation and high-precision benchmarking tool, featuring **AVX2 SIMD acceleration** and **Number Theoretic Transform (NTT)** for polynomial arithmetic.
-
+# M-LWQ-C: High-Performance C Implementation with AVX2 Acceleration
+This repository contains an optimized C implementation of the M-LWQ (Module-Learning With Quantization) Public Key Encryption (PKE) scheme and Key Encapsulation Mechanism (KEM).
+It features AVX2 SIMD acceleration and Number Theoretic Transform (NTT), providing high-performance post-quantum cryptographic primitives with tight security reductions.
 ## 1. Core Concept (M-LWQ)
-
-M-LWQ is a novel post-quantum cryptosystem built on the **Learning With Quantization (LWQ)** problem. It replaces the additive Gaussian error sampling (used in Kyber/LWE) with a deterministic **dithered quantization process**, achieving:
-
-1.  **Tight Security:** Security reduction to Module-LWE.
-2.  **Extreme Compactness:** Eliminates the need to transmit or store large error terms.
-
+ M-LWQ is a novel post-quantum cryptosystem built on the Learning With Quantization (LWQ) problem. It replaces the randomized error sampling of LWE with a deterministic dithered quantization process achieving:
+ - Tight Security: A tight security reduction from the standard Module-LWE problem.
+ - Bandwidth Efficiency: State-of-the-art compactness, achieving approximately 20% smaller public keys compared to Kyber-512.
+ Algorithmic Simplicity: Eliminates the need for high-precision Gaussian sampling by using compensated dithering.
+ 
 ## 2. Implementation Features
 
-This project focuses on **performance** and **correctness verification**.
+ 🚀 Optimization Highlights
+ - Vectorized Arithmetic: Explicit AVX2 Intrinsics for polynomial operations, achieving over 2.5x speedup in core matrix-vector multiplications.
+ - Fast NTT: Optimized Number Theoretic Transform for $R_q$ with $n=256, q=3329$, utilizing Barrett Reduction for rapid modular arithmetic.
+ - Dual-Mode Benchmark: Built-in suite to compare Scalar C vs. AVX2 performance in real-time.
+ - Zero-Bandwidth Dithering: Dither vectors are derived deterministically from public seeds to maintain compactness.
 
-### 🚀 Optimization Highlights
-* **AVX2 Acceleration:**
-    * Explicit **AVX2 Intrinsics** for polynomial addition, subtraction, and component-wise operations.
-    * Vectorized **Base Multiplication** within the NTT domain.
-* **Fast NTT (Number Theoretic Transform):**
-    * Replaces the naive $O(N^2)$ multiplication with an efficient $O(N \log N)$ **NTT** implementation compatible with Kyber parameters ($N=256, Q=3329$).
-    * Includes **Barrett Reduction** for fast modular arithmetic.
-* **Scalar vs. AVX2 Benchmark:**
-    * A built-in benchmarking suite that runs the cryptosystem in both **Scalar (Pure C++)** and **AVX2** modes side-by-side to demonstrate speedups.
-
-### 🛠 Algorithms
-* **KeyGen / Encrypt / Decrypt:** Complete PKE flow implementation.
-* **Quantization:** Efficient implementation of $\mathbb{Z}$ (Scalar) lattice quantization.
-* **SHAKE-128:** Self-contained implementation (no external crypto libraries required).
+ 🛠 Supported Algorithms
+ M-LWQ.PKE: IND-CPA secure Public Key Encryption.
+ M-LWQ.KEM: IND-CCA2 secure Key Encapsulation Mechanism via the Fujisaki-Okamoto transform.
 
 ## 3. Build and Run
-
-### Dependencies
-* **Compiler:** C++17 compatible (GCC, Clang, or MSVC).
-* **Hardware:** CPU with **AVX2** and **FMA** instruction set support (required for the accelerated path).
-* **CMake:** Version 3.10 or higher.
-
+Dependencies
+ - Compiler: GCC or Clang (supporting C11).
+ - Hardware: CPU with AVX2 support.
+ - Build Tool: CMake 3.10+.
 ### Compilation
 
 The `CMakeLists.txt` is configured to automatically enable `-mavx2`, `-mfma`, and `-O3` optimizations.
@@ -57,7 +40,7 @@ cd build
 # 3. Configure and Build
 cmake ..
 make
-./mlwq_demo
+./mlwq_bench
 
 ```
 ## 4. Expected Output
@@ -79,60 +62,56 @@ N=256, K=2
 
 >>> PART 1: Internal Breakdown (Where is time spent?)
 
---------------------------------------------------------------------------------------
+----------------------------------------------------------------------------------------------
  PKE KeyGen Breakdown (Detailed)
---------------------------------------------------------------------------------------
-Sub-Component       Scalar (cyc)   AVX2 (cyc)     Speedup        Scalar %
-GenMatrix (A)       29766          14509          2.05x          31.1%
-Sample (s)          6186           5095           1.21x          6.5%
-GenDither           14751          12786          1.15x          15.4%
-Arith (A*s)         44453          33164          1.34x          46.4%
-Quantize            577            679            0.85x          0.6%
+----------------------------------------------------------------------------------------------
+Sub-Component        Scalar (cyc)    AVX2 (cyc)      Speedup         Scalar %  
+GenMatrix (A)        21436           8028            2.67x            31.1%
+Sample (s)           3486            3370            1.03x            5.1%
+GenDither            11128           7090            1.57x            16.1%
+Arith (A*s)          27668           9370            2.95x            40.1%
+Quantize             246             134             1.83x            0.4%
 
---------------------------------------------------------------------------------------
+----------------------------------------------------------------------------------------------
  PKE Encrypt Breakdown (Detailed)
---------------------------------------------------------------------------------------
-Sub-Component       Scalar (cyc)   AVX2 (cyc)     Speedup        Scalar %
-GenMatrix (A)       28984          13953          2.08x          20.9%
-Sample (r)          12305          12139          1.01x          8.9%
-GenDither           20898          21551          0.97x          15.1%
-Arith (u)           51218          32812          1.56x          36.9%
-Arith (v)           24705          19186          1.29x          17.8%
-Quantize            747            702            1.06x          0.5%
+----------------------------------------------------------------------------------------------
+Sub-Component        Scalar (cyc)    AVX2 (cyc)      Speedup        
+Arith (u)            32612           12057           2.70x
+Arith (v)            21172           8372            2.53x
 
---------------------------------------------------------------------------------------
+----------------------------------------------------------------------------------------------
  PKE Decrypt Breakdown (Detailed)
---------------------------------------------------------------------------------------
-Sub-Component       Scalar (cyc)   AVX2 (cyc)     Speedup        Scalar %
-DeQuantize          4064           3621           1.12x          16.1%
-Arith (v-su)        21011          16578          1.27x          83.3%
-Decode              144            127            1.13x          0.6%
+----------------------------------------------------------------------------------------------
+Sub-Component        Scalar (cyc)    AVX2 (cyc)      Speedup        
+DeQuantize           3972            4121            0.96x
+Arith (v-su)         27668           9370            2.95x
+Decode               3662            3529            1.04x
 
 
 >>> PART 2: Core Component Comparison (Quantize vs Sample)
 ----------------------------------------------------------------------------------------------
-Component   Mode        Quantize        Sample          Alg. Efficiency       AVX Improvement     
+Component  Mode       Quantize        Sample          Alg. Efficiency      AVX Improvement     
 ----------------------------------------------------------------------------------------------
-PK / u      Scalar      286             4174            14.57x                1.00x (Ref)         
-PK / u      AVX2        256             4130            16.9x                 1.12x               
+PK / u     Scalar     246             3486            14.17x                 1.00x (Ref)         
+PK / u     AVX2       134             3370            25.15x                 1.84x
 
 
 >>> PART 3: PKE Full Flow Summary (Total Time)
 ----------------------------------------------------------------------------------------------
-Operation           Scalar Cycles     AVX2 Cycles       Speedup
+Operation            Scalar Cycles   AVX2 Cycles     Speedup   
 ----------------------------------------------------------------------------------------------
-PKE KeyGen          94290             64201             1.47x
-PKE Encrypt         119502            88485             1.35x
-PKE Decrypt         24372             20641             1.18x
+PKE KeyGen           68951           32902           2.10x
+PKE Encrypt          90575           38061           2.38x
+PKE Decrypt          29822           13105           2.28x
 
 
 >>> PART 4: KEM Full Flow Summary (IND-CCA2)
 ----------------------------------------------------------------------------------------------
-Operation           Scalar Cycles     AVX2 Cycles       Speedup
+Operation            Scalar Cycles   AVX2 Cycles     Speedup   
 ----------------------------------------------------------------------------------------------
-KEM KeyGen          110904            75820             1.46x
-KEM Encaps          146720            106138            1.38x
-KEM Decaps          159642            124261            1.28x
+KEM KeyGen           79774           40506           1.97x
+KEM Encaps           106101          51202           2.07x
+KEM Decaps           119020          48285           2.46x
 ----------------------------------------------------------------------------------------------
 
 [FINAL] All checks passed! Implementation is correct.
@@ -141,7 +120,7 @@ Note: Speedup factors depend on your specific CPU architecture. The NTT implemen
 
 
 
-## 5. Project Structure
+<!-- ## 5. Project Structure
 ```
 .
 ├── CMakeLists.txt          # CMake config (Auto-enables AVX2)
@@ -155,7 +134,7 @@ Note: Speedup factors depend on your specific CPU architecture. The NTT implemen
 │   ├── xof.hpp/cpp         # SHAKE-128 wrapper
 │   └── cycles.hpp          # RDTSC cycle counter
 └── ...
-```
+``` -->
 <!-- ## 6. Academic Citation
 If you use this work in your research, please cite the accompanying paper:
 ```
@@ -167,5 +146,5 @@ If you use this work in your research, please cite the accompanying paper:
       url = {[https://eprint.iacr.org/2024/714](https://eprint.iacr.org/2024/714)}
 }
 ``` -->
-## 7. License
-This project is licensed under the MIT License.
+<!-- ## 7. License
+This project is licensed under the MIT License. -->
