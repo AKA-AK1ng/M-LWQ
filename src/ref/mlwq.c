@@ -59,6 +59,8 @@ void ref_mlwq_keygen(mlwq_pk *pk, mlwq_sk *sk, const uint8_t *seed_A, const uint
     poly_matrix A;
     ref_xof_expand_matrix(&A, seed_A);
     
+    // print_debug("Matrix A[0][0]", A.row[0].vec[0].coeffs, 8);
+
     // [CHANGE] Use CBD for secret s
     // seed_d is used as the noise seed here (Kyber convention: coins -> noise)
     // We use nonces 0 to K-1 for s
@@ -77,9 +79,13 @@ void ref_mlwq_keygen(mlwq_pk *pk, mlwq_sk *sk, const uint8_t *seed_A, const uint
     d_uniform_seed[32] = 0xFF; // Domain separator to avoid collision with s
     ref_xof_expand_poly_vec(&d_pk, d_uniform_seed, MLWQ_Q / P_PK);
     
+    // print_debug("Secret s[0]", sk->s.vec[0].coeffs, 8);
+
     poly_vec As;
     ref_poly_matrix_vec_mul(&As, &A, &sk->s);
     
+    // print_debug("Result As[0]", As.vec[0].coeffs, 8);
+
     memcpy(pk->seed_A, seed_A, 32);
     memcpy(pk->seed_d, seed_d, 32);
     
@@ -166,7 +172,10 @@ void ref_mlwq_kem_keygen(mlwq_pk *pk, mlwq_kem_sk *sk) {
     uint8_t seed_A[32], seed_d[32]; // seed_d is also used as noise seed for s
     random_bytes(seed_A, 32);
     random_bytes(seed_d, 32);
-    
+
+    // memset(seed_A,0,32);
+    // memset(seed_d,0,32);
+
     ref_mlwq_keygen(pk, &sk->pke_sk, seed_A, seed_d);
     
     sk->pk = *pk; 

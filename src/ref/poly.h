@@ -16,13 +16,16 @@ void ref_poly_matrix_vec_mul(poly_vec *res, const poly_matrix *A, const poly_vec
 void ref_poly_msg_encode(poly *res, const uint8_t *msg);
 void ref_poly_msg_decode(uint8_t *msg, const poly *p);
 
-void ref_poly_compress_10(uint8_t *r, const poly *a);
-void ref_poly_decompress_10(poly *r, const uint8_t *a);
-void ref_poly_compress_4(uint8_t *r, const poly *a);
-void ref_poly_decompress_4(poly *r, const uint8_t *a);
 
 // Removed to prevent linker conflict with main if not used, 
 // or implement it if needed. For now, main uses memcmp/binary check.
 // int ref_check_poly_eq(const poly *a, const poly *b); 
+
+void ref_poly_compress_u(uint8_t *r, const poly *a);
+void ref_poly_decompress_u(poly *r, const uint8_t *a);
+
+void ref_poly_compress_v(uint8_t *r, const poly *a);
+void ref_poly_decompress_v(poly *r, const uint8_t *a);
+
 void ref_poly_getnoise_eta1(poly *r, const uint8_t *seed, uint8_t nonce);
 #endif

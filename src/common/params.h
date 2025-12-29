@@ -6,50 +6,100 @@
 #define NIST_LEVEL 1
 #endif
 
-// [新增] 补充这两个定义
-// 12-bit 打包: 256 * 12 / 8 = 384 字节
-#define MLWQ_POLYBYTES 384
-
-// 整个向量的打包大小 = K * 单个多项式大小
-#define MLWQ_POLYVECBYTES (MLWQ_K * MLWQ_POLYBYTES)
-
-// 2. [修复] 压缩打包 (密文部分)
-// PolyVec u (10-bit): 256 * 10 / 8 = 320 bytes
-#define MLWQ_POLYVECCOMPRESSEDBYTES (MLWQ_K * 320)
-
-// Poly v (4-bit): 256 * 4 / 8 = 128 bytes
-#define MLWQ_POLYCOMPRESSEDBYTES 128
-
+// -------------------------------------------------------------------------
+// 1. 基础参数
+// -------------------------------------------------------------------------
 #define MLWQ_N 256
 #define MLWQ_Q 3329
-#define MLWQ_ETA 2
-#define MLWQ_ETA1 2
+#define MLWQ_ETA1 3
 
+#define SEEDBYTES 32
+#define HASHBYTES 32
+
+// -------------------------------------------------------------------------
+// 2. 等级特定参数
+// -------------------------------------------------------------------------
 #if NIST_LEVEL == 1
-    #define PARAM_NAME "M-LWQ-512 (C-Imp L1)"
+    #define PARAM_NAME "M-LWQ-512 (L1)"
     #define MLWQ_K 2
-    #define P_PK 512   // 1<<9
-    #define P_U  1024   // 1<<9
-    #define P_V  32    // 1<<5
+    
+    // L1: PK=10, U=9, V=5
+    #define BIT_PK 10
+    #define BIT_U  9
+    #define BIT_V  5
+    
+    #define P_PK 1024
+    #define P_U  512
+    #define P_V  32
+
 #elif NIST_LEVEL == 3
-    #define PARAM_NAME "M-LWQ-768 (C-Imp L3)"
+    #define PARAM_NAME "M-LWQ-768 (L3)"
     #define MLWQ_K 3
-    #define P_PK 1024  // 1<<10
+    
+    // L3: PK=10, U=10, V=5
+    #define BIT_PK 10
+    #define BIT_U  10
+    #define BIT_V  5
+    
+    #define P_PK 1024
     #define P_U  1024
     #define P_V  32
+
 #elif NIST_LEVEL == 5
-    #define PARAM_NAME "M-LWQ-1024 (C-Imp L5)"
+    #define PARAM_NAME "M-LWQ-1024 (L5)"
     #define MLWQ_K 4
-    #define P_PK 2048  // 1<<11
-    #define P_U  2048
-    #define P_V  64
+    
+    // L5: PK=10, U=10, V=5
+    #define BIT_PK 10
+    #define BIT_U  10
+    #define BIT_V  5
+    
+    #define P_PK 1024
+    #define P_U  1024
+    #define P_V  32
+
 #else
     #error "Invalid NIST_LEVEL"
 #endif
 
-// 种子长度
-#define SEEDBYTES 32
-#define HASHBYTES 32
+// -------------------------------------------------------------------------
+// 3. 自动计算字节大小 (关键修复区域)
+// -------------------------------------------------------------------------
 
+// --- 公钥/私钥打包 (PK) ---
+#if BIT_PK == 9
+    // 256 * 9 / 8 = 288
+    #define MLWQ_POLYBYTES 288
+#elif BIT_PK == 10
+    // 256 * 10 / 8 = 320
+    #define MLWQ_POLYBYTES 320
+#else
+    #error "Unsupported BIT_PK"
+#endif
+
+#define MLWQ_POLYVECBYTES (MLWQ_K * MLWQ_POLYBYTES)
+
+// --- 密文 U 压缩 (自动适配) ---
+// [关键修复] 不要硬编码 320，根据 BIT_U 自动选择
+#if BIT_U == 9
+    // 256 * 9 / 8 = 288
+    #define MLWQ_POLY_U_BYTES 288
+#elif BIT_U == 10
+    // 256 * 10 / 8 = 320
+    #define MLWQ_POLY_U_BYTES 320
+#else
+    #error "Unsupported BIT_U"
+#endif
+
+#define MLWQ_POLYVECCOMPRESSEDBYTES (MLWQ_K * MLWQ_POLY_U_BYTES)
+
+// --- 密文 V 压缩 (5-bit) ---
+#define MLWQ_POLYCOMPRESSEDBYTES 160
+
+// --- 总大小 ---
+#define MLWQ_CIPHERTEXTBYTES (MLWQ_POLYVECCOMPRESSEDBYTES + MLWQ_POLYCOMPRESSEDBYTES)
+#define MLWQ_PUBLICKEYBYTES (MLWQ_POLYVECBYTES + SEEDBYTES)
+#define MLWQ_SECRETKEYBYTES (MLWQ_POLYVECBYTES)
+#define MLWQ_SSBYTES 32
 
 #endif

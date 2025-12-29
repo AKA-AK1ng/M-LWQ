@@ -120,21 +120,43 @@ Note: Speedup factors depend on your specific CPU architecture. The NTT implemen
 
 
 
-<!-- ## 5. Project Structure
+## 5. Project Structure
 ```
-.
-├── CMakeLists.txt          # CMake config (Auto-enables AVX2)
-├── src/
-│   ├── main.cpp            # Dual-mode benchmark runner
-│   ├── mlwq.hpp/cpp        # Core M-LWQ PKE algorithms
-│   ├── poly.hpp/cpp        # Poly arithmetic (Add/Sub AVX2 intrinsics)
-│   ├── ntt.hpp/cpp         # NTT implementation & AVX2 BaseMul
-│   ├── params.hpp          # Global params & runtime AVX switch
-│   ├── random.hpp/cpp      # Random sampling
-│   ├── xof.hpp/cpp         # SHAKE-128 wrapper
-│   └── cycles.hpp          # RDTSC cycle counter
-└── ...
-``` -->
+M_LWQ_v1_c_imple/
+├── CMakeLists.txt          # CMake build configuration file
+├── Readme.md               # Project documentation
+└── src/                    # Main source code directory
+    ├── main.c              # Entry point / Benchmark code
+    ├── common/             # Common utilities (Hash, Random, Params)
+    │   ├── cycles.h        # CPU cycle counter (for benchmarking)
+    │   ├── fips202.c/h     # Scalar SHAKE/Keccak implementation
+    │   ├── params.h        # M-LWQ parameter definitions (N, Q, K, etc.)
+    │   ├── random.c/h      # Random number generator
+    │   └── structs.h       # Data structure definitions
+    │
+    ├── ref/                # Pure C Reference Implementation
+    │   ├── mlwq.c/h        # Core logic: KeyGen, Encrypt, Decrypt
+    │   ├── ntt.c/h         # Number Theoretic Transform (NTT) reference implementation
+    │   ├── poly.c/h        # Polynomial operations (arithmetic, sampling, packing)
+    │   ├── reduce.h        # Modular reduction functions
+    │   └── xof.c/h         # Extensible Output Functions (Matrix/Vector expansion)
+    │
+    └── avx2/               # AVX2 Instruction Set Optimization
+        ├── consts.c/h      # AVX2 pre-computed constants (qdata, shuffle masks, etc.)
+        ├── fips202x4.c/h   # Interface for 4-way parallel SHAKE/Keccak
+        ├── mlwq.c/h        # AVX2 optimized core logic
+        ├── ntt.c/h         # AVX2 optimized NTT/InvNTT and pointwise multiplication
+        ├── poly.c/h        # AVX2 optimized polynomial operations and packing
+        ├── xof.c/h         # AVX2 optimized parallel Matrix/Vector sampling
+        │
+        └── keccak4x/       # 4-way parallel Keccak core (Assembly/Intrinsics)
+            ├── KeccakP-1600-times4-SIMD256.c
+            ├── KeccakP-1600-times4-SnP.h
+            ├── KeccakP-1600-unrolling.macros
+            ├── KeccakP-align.h
+            ├── KeccakP-brg_endian.h
+            └── KeccakP-SIMD256-config.h
+```
 <!-- ## 6. Academic Citation
 If you use this work in your research, please cite the accompanying paper:
 ```
