@@ -16,8 +16,7 @@ void random_poly_uniform(poly *p) {
     }
 }
 
-// [FIX] 使用 CBD2 (Centered Binomial Distribution)
-// 之前是 Uniform(5)，噪声太大
+
 void random_poly_eta(poly *p) {
     for(int i=0; i<MLWQ_N; ++i) {
         // 模拟 CBD2: [-2, 2]

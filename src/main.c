@@ -8,12 +8,10 @@
 #include "common/cycles.h"
 #include "common/random.h"
 #include "common/structs.h"
-
-// 引入 fips202 以便直接调用 shake 接口进行精确模拟
 #include "common/fips202.h"
 
 // -------------------------------------------------------------------------
-// 外部函数声明
+// External Functions
 // -------------------------------------------------------------------------
 extern void ref_xof_expand_matrix(poly_matrix *A, const uint8_t *seed);
 extern void ref_xof_expand_poly_vec(poly_vec *v, const uint8_t *seed, int32_t modulus);
@@ -41,7 +39,7 @@ extern void avx_poly_vec_transpose_mul(poly *res, const poly_vec *a_t, const pol
 
 typedef struct {
     uint64_t gen_matrix;
-    uint64_t sample;    // CBD2
+    uint64_t sample;
     uint64_t gen_dither;
     uint64_t arith;
     uint64_t quantize;
@@ -65,18 +63,63 @@ static bench_stats_t stats_avx = {0};
 
 static uint64_t avg(uint64_t total) { return total / ROUNDS; }
 
-// -------------------------------------------------------------------------
-// CBD2 精确模拟函数
-// -------------------------------------------------------------------------
-// CBD2 需要 256 * 4 bit = 128 bytes 的随机数
-// 加上 SHAKE absorb + finalize 的开销
+void print_sep() { printf("----------------------------------------------------------------------------------------------\n"); }
 
+// -------------------------------------------------------------------------
+// [Fix] Correct Size Display using Macros from params.h
+// -------------------------------------------------------------------------
+// 我们使用宏 (Macros) 而不是 sizeof()，因为宏代表了协议定义的序列化(Wire)尺寸，
+// 而 sizeof() 可能会包含内存对齐(Padding)或者是不压缩的中间态尺寸。
+void print_data_sizes() {
+    printf(">>> PART 0: Protocol Data Sizes (Serialized/Wire Format)\n");
+    print_sep();
+    printf("%-35s %-15s\n", "Component", "Size (Bytes)");
+    print_sep();
+    
+    // --- PKE (CPA-Secure) ---
+    printf("[PKE] Public Key (pk):\n");
+    // Calculation: (K * N * BIT_PK / 8) + 32
+    printf("  %-33s %d\n", "MLWQ_PUBLICKEYBYTES", MLWQ_PUBLICKEYBYTES);
+    
+    printf("[PKE] Secret Key (sk):\n");
+    // Calculation: K * N * BIT_PK / 8 (or packed s)
+    printf("  %-33s %d\n", "MLWQ_SECRETKEYBYTES", MLWQ_SECRETKEYBYTES);
+    
+    printf("[PKE] Ciphertext (ct):\n");
+    // Calculation: (K * N * BIT_U / 8) + (N * BIT_V / 8)
+    printf("  %-33s %d\n", "MLWQ_CIPHERTEXTBYTES", MLWQ_CIPHERTEXTBYTES);
+    
+    printf("\n");
+
+    // --- KEM (CCA-Secure) ---
+    // KEM SK 通常包含 PKE_SK + PK + H(PK) + z
+    // 假设你的 structs.h 定义是标准的，并且我们没有专门的 KEM_SK_BYTES 宏，
+    // 我们这里计算理论值：
+    int kem_sk_size = MLWQ_SECRETKEYBYTES + MLWQ_PUBLICKEYBYTES + 32 + 32;
+
+    printf("[KEM] Public Key:\n");
+    printf("  %-33s %d\n", "Same as PKE PK", MLWQ_PUBLICKEYBYTES);
+    
+    printf("[KEM] Secret Key (Bundled):\n");
+    printf("  %-33s %d (Approx. Theoretical)\n", "sk + pk + H(pk) + z", kem_sk_size);
+    
+    printf("[KEM] Ciphertext:\n");
+    printf("  %-33s %d\n", "Same as PKE CT", MLWQ_CIPHERTEXTBYTES);
+    
+    printf("[KEM] Shared Secret (ss):\n");
+    printf("  %-33s %d\n", "MLWQ_SSBYTES", MLWQ_SSBYTES);
+    
+    print_sep();
+    printf("\n");
+}
+
+// -------------------------------------------------------------------------
+// Helper: CBD Simulation
+// -------------------------------------------------------------------------
 static uint64_t measure_cbd_scalar() {
     uint8_t seed[32];
-    uint8_t buf[128 * MLWQ_K]; // K=2 -> 256 bytes total
+    uint8_t buf[128 * MLWQ_K]; 
     uint64_t t1, t2;
-    
-    // 初始化一些 dummy 数据防止被优化
     memset(seed, 0xAB, 32);
 
     t1 = start_cycles();
@@ -86,47 +129,37 @@ static uint64_t measure_cbd_scalar() {
     shake128_finalize(&state);
     shake128_squeeze(buf, sizeof(buf), &state);
     
-    // 模拟 CBD 位运算 (解析 bit 并做减法)
-    // 简单遍历以消耗 CPU 周期，模拟真实 CBD 的运算量
     volatile uint32_t dummy = 0;
     for(int i=0; i<sizeof(buf); i++) {
         uint8_t b = buf[i];
         dummy += (b & 0xF) - (b >> 4);
     }
     t2 = stop_cycles();
-    
     return t2 - t1;
 }
 
 // -------------------------------------------------------------------------
-// 测量逻辑
+// Measurement Functions (Unchanged)
 // -------------------------------------------------------------------------
-
 void measure_pke_keygen_ref() {
     uint64_t t1, t2;
     uint64_t dt_mat, dt_samp, dt_dith, dt_arith, dt_quant; 
-    
     uint8_t seed_A[32], seed_d[32];
     random_bytes(seed_A, 32); random_bytes(seed_d, 32);
     poly_matrix A; poly_vec s, d_pk, As, b_q;
 
-    // 1. GenMatrix
     t1 = start_cycles(); ref_xof_expand_matrix(&A, seed_A); t2 = stop_cycles();
     dt_mat = t2 - t1; stats_ref.gen_matrix += dt_mat;
 
-    // 2. Sample s (Correct CBD2 Measurement)
     dt_samp = measure_cbd_scalar();
     stats_ref.sample += dt_samp;
 
-    // 3. GenDither
     t1 = start_cycles(); ref_xof_expand_poly_vec(&d_pk, seed_d, MLWQ_Q / P_PK); t2 = stop_cycles();
     dt_dith = t2 - t1; stats_ref.gen_dither += dt_dith;
 
-    // 4. Arith
     t1 = start_cycles(); ref_poly_matrix_vec_mul(&As, &A, &s); t2 = stop_cycles();
     dt_arith = t2 - t1; stats_ref.arith += dt_arith;
 
-    // 5. Quantize
     t1 = start_cycles(); for(int i=0; i<MLWQ_K; ++i) ref_poly_quantize(&b_q.vec[i], &As.vec[i], &d_pk.vec[i], P_PK); t2 = stop_cycles();
     dt_quant = t2 - t1; stats_ref.quantize += dt_quant;
 
@@ -136,14 +169,12 @@ void measure_pke_keygen_ref() {
 void measure_pke_encrypt_ref() {
     uint64_t t1, t2;
     uint64_t dt_mat, dt_samp, dt_dith, dt_au, dt_av, dt_quant;
-
     uint8_t seed_ct[32]; random_bytes(seed_ct, 32);
     poly_matrix A; poly_vec r, d_u, Atr, u;
     
     t1 = start_cycles(); ref_xof_expand_matrix(&A, seed_ct); t2 = stop_cycles();
     dt_mat = t2 - t1; stats_ref.gen_matrix += dt_mat; 
 
-    // Sample r (Correct CBD2 Measurement)
     dt_samp = measure_cbd_scalar();
     stats_ref.sample += dt_samp;
 
@@ -187,8 +218,6 @@ void measure_pke_decrypt_ref() {
     stats_ref.pke_decrypt += (dt_dq + dt_arith + dt_dec);
 }
 
-// --- AVX Versions ---
-
 void measure_pke_keygen_avx() {
     uint64_t t1, t2;
     uint64_t dt_mat, dt_samp, dt_dith, dt_arith, dt_quant;
@@ -198,11 +227,6 @@ void measure_pke_keygen_avx() {
     t1 = start_cycles(); avx_xof_expand_matrix(&A, seed_A); t2 = stop_cycles();
     dt_mat = t2 - t1; stats_avx.gen_matrix += dt_mat;
 
-    // Sample s:
-    // 注意：目前 AVX2 实现中还没有引入专用的 CBD AVX 汇编 (cbd.S)。
-    // 现有的 mlwq.c 使用的是标量 SHAKE128。
-    // 为了公平反映当前代码状态，这里测量标量 CBD 的性能。
-    // 如果后续你加入了 shake128x4 版本的 CBD，这里会更快。
     dt_samp = measure_cbd_scalar(); 
     stats_avx.sample += dt_samp;
 
@@ -228,7 +252,7 @@ void measure_pke_encrypt_avx() {
     t1 = start_cycles(); avx_xof_expand_matrix(&A, seed_ct); t2 = stop_cycles();
     dt_mat = t2 - t1; stats_avx.gen_matrix += dt_mat;
 
-    dt_samp = measure_cbd_scalar(); // See note above
+    dt_samp = measure_cbd_scalar(); 
     stats_avx.sample += dt_samp;
 
     t1 = start_cycles(); avx_xof_expand_poly_vec(&d_u, seed_ct, MLWQ_Q / P_U); t2 = stop_cycles();
@@ -273,12 +297,13 @@ void measure_pke_decrypt_avx() {
     stats_avx.pke_decrypt += (dt_dq + dt_arith + dt_dec);
 }
 
-void print_sep() { printf("----------------------------------------------------------------------------------------------\n"); }
-
 int main() {
     random_init();
     printf("\n=== M-LWQ Comprehensive Performance Report ===\n");
-    printf("M-LWQ-512 (NIST Level 1)\nN=%d, K=%d\n\n", MLWQ_N, MLWQ_K);
+    printf("%s\nN=%d, K=%d\n\n", PARAM_NAME, MLWQ_N, MLWQ_K);
+
+    // [修改] 正确打印 PKE 和 KEM 的 Wire Size
+    print_data_sizes();
 
     mlwq_pk pk; mlwq_kem_sk sk; mlwq_ciphertext ct;
     uint8_t ss1[32], ss2[32];
@@ -366,7 +391,6 @@ int main() {
     printf("%-20s %-15lu %-15lu %-.2fx\n", "Arith (v-su)", ar_dec_ref, ar_dec_avx, (double)ar_dec_ref/ar_dec_avx);
     printf("%-20s %-15lu %-15lu %-.2fx\n", "Decode", dc_ref, dc_avx, (double)dc_ref/dc_avx);
 
-
     printf("\n\n>>> PART 2: Core Component Comparison (Quantize vs Sample)\n");
     print_sep();
     printf("%-10s %-10s %-15s %-15s %-20s %-20s\n", "Component", "Mode", "Quantize", "Sample", "Alg. Efficiency", "AVX Improvement");
@@ -376,7 +400,6 @@ int main() {
     uint64_t q_avx = avg(stats_avx.quantize)/2; uint64_t s_avx = avg(stats_avx.sample)/2;
     printf("%-10s %-10s %-15lu %-15lu %-.2fx                 %-20s\n", "PK / u", "Scalar", q_ref, s_ref, (double)s_ref/q_ref, "1.00x (Ref)");
     printf("%-10s %-10s %-15lu %-15lu %-.2fx                 %-.2fx\n", "PK / u", "AVX2", q_avx, s_avx, (double)s_avx/q_avx, (double)q_ref/q_avx);
-
 
     printf("\n\n>>> PART 3: PKE Full Flow Summary (Total Time)\n");
     print_sep();
