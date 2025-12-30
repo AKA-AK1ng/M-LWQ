@@ -24,7 +24,7 @@ namespace params {
 #if NIST_LEVEL == 1
     constexpr char PARAM_SET_NAME[] = "M-LWQ-512 (NIST Level 1)";
     constexpr int32_t K = 2;             // 矩阵维度 2x2
-    constexpr int32_t D_PK_BITS = 9;     // 公钥量化比特
+    constexpr int32_t D_PK_BITS = 10;     // 公钥量化比特
     constexpr int32_t D_U_BITS = 9;      // 密文 u 量化比特
     constexpr int32_t D_V_BITS = 5;      // 密文 v 量化比特
 
@@ -38,9 +38,9 @@ namespace params {
 #elif NIST_LEVEL == 5
     constexpr char PARAM_SET_NAME[] = "M-LWQ-1024 (NIST Level 5)";
     constexpr int32_t K = 4;             // 矩阵维度 4x4
-    constexpr int32_t D_PK_BITS = 11;
-    constexpr int32_t D_U_BITS = 11;
-    constexpr int32_t D_V_BITS = 6;
+    constexpr int32_t D_PK_BITS = 10;
+    constexpr int32_t D_U_BITS = 10;
+    constexpr int32_t D_V_BITS = 5;
 
 #else
     #error "Invalid NIST_LEVEL. Please set to 1, 3, or 5."
