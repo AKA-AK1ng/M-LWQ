@@ -47,27 +47,6 @@ static void avx_cbd3_simd(poly *r, const uint8_t *buf) {
         __m256i d = _mm256_and_si256(t_vec, mask_249249);
         d = _mm256_add_epi32(d, _mm256_and_si256(_mm256_srli_epi32(t_vec, 1), mask_249249));
         d = _mm256_add_epi32(d, _mm256_and_si256(_mm256_srli_epi32(t_vec, 2), mask_249249));
-        
-        // 此时 d 的每个 32-bit lane 包含 4 个压缩的 3-bit 计数
-        // d = [ ... | c3 | c2 | c1 | c0 ] (每个 c 是 3 bits)
-        // 我们需要拆分它们。
-        // 为了方便，我们这里不拆分到不同的 lane，而是直接提取 a 和 b
-        // d 结构: bit 0..2 (a0), 3..5 (b0), 6..8 (a1), 9..11 (b1)...
-        
-        // 这部分向量化比较麻烦，因为输出需要 scatter 到 32 个 int16。
-        // 更好的策略是：
-        // 在 32-bit lane 内部计算出 4 个 int16 ? 不行，空间不够。
-        // 我们可以只利用 AVX 做上面的 "d" 计算 (最耗时的部分)，然后 store 回去用标量拆分？
-        // 或者，坚持纯 AVX。
-        
-        // 纯 AVX 策略 (Kyber Style):
-        // 上面的 d 计算其实是一次性算出了 a+b 的位计数。
-        // 让我们换一种思路，直接并行计算 a 和 b。
-        
-        // 简单暴力法：
-        // 直接把 d 存到临时数组，然后标量解开。这比纯标量快，因为位运算并行了。
-        // 但为了极致性能，我们继续：
-        
         uint32_t temp[8];
         _mm256_storeu_si256((__m256i*)temp, d);
         
