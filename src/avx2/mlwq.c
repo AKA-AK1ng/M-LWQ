@@ -32,7 +32,7 @@ static void avx_cbd3_simd(poly *r, const uint8_t *buf) {
         0, 1, 2, -1,  3, 4, 5, -1,  6, 7, 8, -1,  9, 10, 11, -1  // High 128 (reuse logic)
     );
     
-    for (int i = 0; i < MLWQ_N / 16; i++) {
+    for (int i = 0; i < MLWQ_N / 32; i++) {
         
         __m128i lo = _mm_loadu_si128((const __m128i *)(buf));      // Load 16 bytes (use first 12)
         __m128i hi = _mm_loadu_si128((const __m128i *)(buf + 12)); // Load next 16 bytes (use first 12)
@@ -83,11 +83,11 @@ void avx_mlwq_keygen(mlwq_pk *pk, mlwq_sk *sk, const uint8_t *seed_A, const uint
     }
     
     // CBD3 需要 192 bytes, SHAKE256 rate 136. Need 2 blocks.
-    uint8_t out[4][136 * 2]; 
+    uint8_t out[4][168 * 2]; 
     
     keccakx4_state state;
-    shake256x4_absorb_once(&state, in_ptrs[0], in_ptrs[1], in_ptrs[2], in_ptrs[3], 33);
-    shake256x4_squeezeblocks(out[0], out[1], out[2], out[3], 2, &state);
+    shake128x4_absorb_once(&state, in_ptrs[0], in_ptrs[1], in_ptrs[2], in_ptrs[3], 33);
+    shake128x4_squeezeblocks(out[0], out[1], out[2], out[3], 2, &state);
     
     for(int i=0; i<MLWQ_K; i++) {
         // [Change] 使用 AVX2 优化的 CBD3
@@ -121,7 +121,7 @@ void avx_mlwq_encrypt(mlwq_ciphertext *ct, const mlwq_pk *pk, const uint8_t *msg
     
     uint8_t seeds[4][33];
     const uint8_t *in_ptrs[4];
-    uint8_t out[4][136 * 2]; 
+    uint8_t out[4][168 * 2]; 
     
     for(int i=0; i<4; i++) {
         memcpy(seeds[i], seed_ct, 32);
@@ -130,8 +130,8 @@ void avx_mlwq_encrypt(mlwq_ciphertext *ct, const mlwq_pk *pk, const uint8_t *msg
     }
     
     keccakx4_state state;
-    shake256x4_absorb_once(&state, in_ptrs[0], in_ptrs[1], in_ptrs[2], in_ptrs[3], 33);
-    shake256x4_squeezeblocks(out[0], out[1], out[2], out[3], 2, &state);
+    shake128x4_absorb_once(&state, in_ptrs[0], in_ptrs[1], in_ptrs[2], in_ptrs[3], 33);
+    shake128x4_squeezeblocks(out[0], out[1], out[2], out[3], 2, &state);
     
     for(int i=0; i<MLWQ_K; i++) {
         // [Change] 使用 AVX2 优化的 CBD3

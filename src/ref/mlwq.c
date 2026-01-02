@@ -46,7 +46,7 @@ static void poly_getnoise_eta1(poly *r, const uint8_t *seed, uint8_t nonce) {
     extseed[32] = nonce;
     
     // Use SHAKE256 for PRF (Standard Kyber practice)
-    shake256(buf, sizeof(buf), extseed, 33);
+    shake128(buf, sizeof(buf), extseed, 33);
     
     cbd3(r, buf);
 }
