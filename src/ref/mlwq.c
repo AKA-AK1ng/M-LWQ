@@ -15,7 +15,7 @@ static inline uint32_t load24_littleendian(const uint8_t x[3]) {
     return (uint32_t)x[0] | ((uint32_t)x[1] << 8) | ((uint32_t)x[2] << 16);
 }
 
-// CBD3: Eta = 3
+// CBD3: Eta = 3 (aligned with MLWQ_ETA1 = 3 in params.h)
 // Input: 3 bytes (24 bits) -> Output: 4 coefficients
 static void cbd3(poly *r, const uint8_t buf[3*MLWQ_N/4]) {
     unsigned int i, j;
