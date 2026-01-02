@@ -3,7 +3,7 @@
 #include <stdlib.h>
 #include "structs.h"
 
-// 简单 RNG 接口 (生产环境应换成系统 RNG)
+// 系统 RNG 接口
 void random_init();
 void random_bytes(uint8_t *out, size_t len);
 void random_poly_uniform(poly *p);
