@@ -19,6 +19,8 @@ extern void ref_poly_matrix_vec_mul(poly_vec *res, const poly_matrix *A, const p
 extern void ref_poly_quantize(poly *res, const poly *v, const poly *d, int32_t P);
 extern void ref_poly_dequantize(poly *res, const poly *b, int32_t P);
 extern void ref_poly_msg_decode(uint8_t *msg, const poly *p);
+extern void ref_mlwq_keygen(mlwq_pk *pk, mlwq_sk *sk, const uint8_t *seed_A, const uint8_t *seed_d);
+extern void ref_mlwq_encrypt(mlwq_ciphertext *ct, const mlwq_pk *pk, const uint8_t *msg, const uint8_t *seed_ct);
 extern void ref_mlwq_kem_keygen(mlwq_pk *pk, mlwq_kem_sk *sk);
 extern void ref_mlwq_kem_encaps(mlwq_ciphertext *ct, uint8_t *ss, const mlwq_pk *pk);
 extern int  ref_mlwq_kem_decaps(uint8_t *ss, const mlwq_kem_sk *sk, const mlwq_ciphertext *ct);
@@ -30,6 +32,8 @@ extern void avx_poly_matrix_vec_mul(poly_vec *res, const poly_matrix *A, const p
 extern void avx_poly_quantize(poly *res, const poly *v, const poly *d, int32_t P);
 extern void avx_poly_dequantize(poly *res, const poly *b, int32_t P);
 extern void avx_poly_msg_decode(uint8_t *msg, const poly *p);
+extern void avx_mlwq_keygen(mlwq_pk *pk, mlwq_sk *sk, const uint8_t *seed_A, const uint8_t *seed_d);
+extern void avx_mlwq_encrypt(mlwq_ciphertext *ct, const mlwq_pk *pk, const uint8_t *msg, const uint8_t *seed_ct);
 extern void avx_mlwq_kem_keygen(mlwq_pk *pk, mlwq_kem_sk *sk);
 extern void avx_mlwq_kem_encaps(mlwq_ciphertext *ct, uint8_t *ss, const mlwq_pk *pk);
 extern int  avx_mlwq_kem_decaps(uint8_t *ss, const mlwq_kem_sk *sk, const mlwq_ciphertext *ct);
@@ -201,15 +205,24 @@ void measure_pke_encrypt_ref() {
 void measure_pke_decrypt_ref() {
     uint64_t t1, t2;
     uint64_t dt_dq, dt_arith, dt_dec;
-    poly_vec u_deq, s; poly diff; uint8_t msg[32];
+    mlwq_pk pk; mlwq_sk sk; mlwq_ciphertext ct; uint8_t msg[32];
+    uint8_t seed_A[32], seed_d[32], seed_ct[32];
+    poly_vec u_deq; poly diff;
+
+    random_bytes(seed_A, sizeof(seed_A));
+    random_bytes(seed_d, sizeof(seed_d));
+    random_bytes(seed_ct, sizeof(seed_ct));
+    random_bytes(msg, sizeof(msg));
+    ref_mlwq_keygen(&pk, &sk, seed_A, seed_d);
+    ref_mlwq_encrypt(&ct, &pk, msg, seed_ct);
 
     t1 = start_cycles(); 
-    for(int i=0; i<MLWQ_K; i++) ref_poly_dequantize(&u_deq.vec[i], &s.vec[i], P_U);
-    ref_poly_dequantize(&diff, &diff, P_V);
+    for(int i=0; i<MLWQ_K; i++) ref_poly_dequantize(&u_deq.vec[i], &ct.u.vec[i], P_U);
+    ref_poly_dequantize(&diff, &ct.v, P_V);
     t2 = stop_cycles();
     dt_dq = t2 - t1; stats_ref.dequantize += dt_dq;
 
-    t1 = start_cycles(); ref_poly_vec_transpose_mul(&diff, &s, &u_deq); t2 = stop_cycles();
+    t1 = start_cycles(); ref_poly_vec_transpose_mul(&diff, &sk.s, &u_deq); t2 = stop_cycles();
     dt_arith = t2 - t1; stats_ref.arith += dt_arith; 
 
     t1 = start_cycles(); ref_poly_msg_decode(msg, &diff); t2 = stop_cycles();
@@ -278,17 +291,25 @@ void measure_pke_encrypt_avx() {
 void measure_pke_decrypt_avx() {
     uint64_t t1, t2;
     uint64_t dt_dq, dt_arith, dt_dec;
-    poly_vec u_deq, s; 
-    poly v_deq, diff; 
-    uint8_t msg[32];
+    mlwq_pk pk; mlwq_sk sk; mlwq_ciphertext ct; uint8_t msg[32];
+    uint8_t seed_A[32], seed_d[32], seed_ct[32];
+    poly_vec u_deq;
+    poly diff;
+
+    random_bytes(seed_A, sizeof(seed_A));
+    random_bytes(seed_d, sizeof(seed_d));
+    random_bytes(seed_ct, sizeof(seed_ct));
+    random_bytes(msg, sizeof(msg));
+    avx_mlwq_keygen(&pk, &sk, seed_A, seed_d);
+    avx_mlwq_encrypt(&ct, &pk, msg, seed_ct);
 
     t1 = start_cycles(); 
-    for(int i=0; i<MLWQ_K; i++) avx_poly_dequantize(&u_deq.vec[i], &s.vec[i], P_U);
-    avx_poly_dequantize(&v_deq, &diff, P_V);
+    for(int i=0; i<MLWQ_K; i++) avx_poly_dequantize(&u_deq.vec[i], &ct.u.vec[i], P_U);
+    avx_poly_dequantize(&diff, &ct.v, P_V);
     t2 = stop_cycles();
     dt_dq = t2 - t1; stats_avx.dequantize += dt_dq;
 
-    t1 = start_cycles(); avx_poly_vec_transpose_mul(&diff, &s, &u_deq); t2 = stop_cycles();
+    t1 = start_cycles(); avx_poly_vec_transpose_mul(&diff, &sk.s, &u_deq); t2 = stop_cycles();
     dt_arith = t2 - t1; stats_avx.arith += dt_arith;
 
     t1 = start_cycles(); avx_poly_msg_decode(msg, &diff); t2 = stop_cycles();
