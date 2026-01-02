@@ -248,7 +248,6 @@ void measure_pke_encrypt_avx() {
     uint8_t seed_ct[32];
     poly_matrix A; poly_vec r, d_u, Atr, u;
     
-    avx_xof_expand_matrix(&A, seed_ct); 
     t1 = start_cycles(); avx_xof_expand_matrix(&A, seed_ct); t2 = stop_cycles();
     dt_mat = t2 - t1; stats_avx.gen_matrix += dt_mat;
 
