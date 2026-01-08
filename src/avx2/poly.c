@@ -21,19 +21,27 @@ static inline __m256i avx_sub_mod(__m256i a, __m256i b) {
     return _mm256_add_epi16(diff, _mm256_and_si256(mask, vq));
 }
 
+static inline void avx_poly_add_inplace(poly *res, const poly *b) {
+    for(int i=0; i<MLWQ_N/16; ++i) {
+        __m256i va = _mm256_load_si256((__m256i*)&res->coeffs[16*i]);
+        __m256i vb = _mm256_load_si256((__m256i*)&b->coeffs[16*i]);
+        _mm256_store_si256((__m256i*)&res->coeffs[16*i], avx_add_mod(va, vb));
+    }
+}
+
 void avx_poly_add(poly *res, const poly *a, const poly *b) {
     for(int i=0; i<MLWQ_N/16; ++i) {
-        __m256i va = _mm256_loadu_si256((__m256i*)&a->coeffs[16*i]);
-        __m256i vb = _mm256_loadu_si256((__m256i*)&b->coeffs[16*i]);
-        _mm256_storeu_si256((__m256i*)&res->coeffs[16*i], avx_add_mod(va, vb));
+        __m256i va = _mm256_load_si256((__m256i*)&a->coeffs[16*i]);
+        __m256i vb = _mm256_load_si256((__m256i*)&b->coeffs[16*i]);
+        _mm256_store_si256((__m256i*)&res->coeffs[16*i], avx_add_mod(va, vb));
     }
 }
 
 void avx_poly_sub(poly *res, const poly *a, const poly *b) {
     for(int i=0; i<MLWQ_N/16; ++i) {
-        __m256i va = _mm256_loadu_si256((__m256i*)&a->coeffs[16*i]);
-        __m256i vb = _mm256_loadu_si256((__m256i*)&b->coeffs[16*i]);
-        _mm256_storeu_si256((__m256i*)&res->coeffs[16*i], avx_sub_mod(va, vb));
+        __m256i va = _mm256_load_si256((__m256i*)&a->coeffs[16*i]);
+        __m256i vb = _mm256_load_si256((__m256i*)&b->coeffs[16*i]);
+        _mm256_store_si256((__m256i*)&res->coeffs[16*i], avx_sub_mod(va, vb));
     }
 }
 
@@ -46,8 +54,8 @@ void avx_poly_quantize(poly *res, const poly *v, const poly *d, int32_t P) {
     __m256i mask_vec = _mm256_set1_epi16((int16_t)(P - 1));
 
     for(int i=0; i<MLWQ_N/16; ++i) {
-        __m256i vv = _mm256_loadu_si256((__m256i*)&v->coeffs[16*i]);
-        __m256i vd = _mm256_loadu_si256((__m256i*)&d->coeffs[16*i]);
+        __m256i vv = _mm256_load_si256((__m256i*)&v->coeffs[16*i]);
+        __m256i vd = _mm256_load_si256((__m256i*)&d->coeffs[16*i]);
         
         // 1. sum = v + d (直接加，暂不取模，因为后面要乘 P/Q)
         // 注意：v 和 d 都是 [0, Q) 范围，相加最大 ~6658，远小于 int16 上限
@@ -60,7 +68,7 @@ void avx_poly_quantize(poly *res, const poly *v, const poly *d, int32_t P) {
         // 3. Mask
         __m256i q_res = _mm256_and_si256(floor_val, mask_vec);
 
-        _mm256_storeu_si256((__m256i*)&res->coeffs[16*i], q_res);
+        _mm256_store_si256((__m256i*)&res->coeffs[16*i], q_res);
     }
 }
 
@@ -85,8 +93,7 @@ void avx_poly_matrix_vec_mul(poly_vec *res, const poly_matrix *A, const poly_vec
         for(int j=0; j<MLWQ_K; ++j) {
             poly tmp;
             avx_poly_mul_ntt(&tmp, &A->row[i].vec[j], &s->vec[j]);
-            poly old = res->vec[i];
-            avx_poly_add(&res->vec[i], &old, &tmp);
+            avx_poly_add_inplace(&res->vec[i], &tmp);
         }
     }
 }
@@ -96,8 +103,7 @@ void avx_poly_vec_transpose_mul(poly *res, const poly_vec *a_t, const poly_vec *
     for(int i=0; i<MLWQ_K; ++i) {
         poly tmp;
         avx_poly_mul_ntt(&tmp, &a_t->vec[i], &b->vec[i]);
-        poly old = *res;
-        avx_poly_add(res, &old, &tmp);
+        avx_poly_add_inplace(res, &tmp);
     }
 }
 
