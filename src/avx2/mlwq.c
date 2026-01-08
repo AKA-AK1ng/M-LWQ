@@ -23,43 +23,53 @@ extern void avx_poly_decompress_v(poly *r, const uint8_t *a);
 // =========================================================================
 
 static void avx_cbd3_simd(poly *r, const uint8_t *buf) {
-    // 预计算常量
-    const __m256i mask_249249 = _mm256_set1_epi32(0x00249249);
-    const __m256i mask_7      = _mm256_set1_epi32(0x7);
+    unsigned int i;
+    __m256i f0, f1, f2, f3;
+    const __m256i mask249 = _mm256_set1_epi32(0x249249);
+    const __m256i mask6db = _mm256_set1_epi32(0x6DB6DB);
+    const __m256i mask07 = _mm256_set1_epi32(7);
+    const __m256i mask70 = _mm256_set1_epi32(7 << 16);
+    const __m256i mask3 = _mm256_set1_epi16(3);
+    const __m256i shufbidx = _mm256_set_epi8(-1, 15, 14, 13, -1, 12, 11, 10, -1, 9, 8, 7, -1, 6, 5, 4,
+                                             -1, 11, 10, 9, -1, 8, 7, 6, -1, 5, 4, 3, -1, 2, 1, 0);
 
-    const __m256i shuf_mask = _mm256_setr_epi8(
-        0, 1, 2, -1,  3, 4, 5, -1,  6, 7, 8, -1,  9, 10, 11, -1, // Low 128
-        0, 1, 2, -1,  3, 4, 5, -1,  6, 7, 8, -1,  9, 10, 11, -1  // High 128 (reuse logic)
-    );
-    
-    for (int i = 0; i < MLWQ_N / 32; i++) {
-        
-        __m128i lo = _mm_loadu_si128((const __m128i *)(buf));      // Load 16 bytes (use first 12)
-        __m128i hi = _mm_loadu_si128((const __m128i *)(buf + 12)); // Load next 16 bytes (use first 12)
-        __m256i t_vec = _mm256_inserti128_si256(_mm256_castsi128_si256(lo), hi, 1);
-        
-        buf += 24; // Advance input pointer
-        
-        // 2. 解包 (3 bytes -> 32-bit int)
-        t_vec = _mm256_shuffle_epi8(t_vec, shuf_mask);
-        
-        // 3. 位运算 (并行计算 8 组 CBD)
-        __m256i d = _mm256_and_si256(t_vec, mask_249249);
-        d = _mm256_add_epi32(d, _mm256_and_si256(_mm256_srli_epi32(t_vec, 1), mask_249249));
-        d = _mm256_add_epi32(d, _mm256_and_si256(_mm256_srli_epi32(t_vec, 2), mask_249249));
-        uint32_t temp[8];
-        _mm256_storeu_si256((__m256i*)temp, d);
-        
-        for(int k=0; k<8; k++) {
-            uint32_t val = temp[k];
-            int16_t *out_ptr = r->coeffs + i*32 + k*4;
-            
-            // 展开 4 个系数
-            out_ptr[0] = (int16_t)((val >> 0) & 0x7) - (int16_t)((val >> 3) & 0x7);
-            out_ptr[1] = (int16_t)((val >> 6) & 0x7) - (int16_t)((val >> 9) & 0x7);
-            out_ptr[2] = (int16_t)((val >> 12) & 0x7) - (int16_t)((val >> 15) & 0x7);
-            out_ptr[3] = (int16_t)((val >> 18) & 0x7) - (int16_t)((val >> 21) & 0x7);
-        }
+    for (i = 0; i < MLWQ_N / 32; i++) {
+        f0 = _mm256_loadu_si256((const __m256i *)&buf[24 * i]);
+        f0 = _mm256_permute4x64_epi64(f0, 0x94);
+        f0 = _mm256_shuffle_epi8(f0, shufbidx);
+
+        f1 = _mm256_srli_epi32(f0, 1);
+        f2 = _mm256_srli_epi32(f0, 2);
+        f0 = _mm256_and_si256(mask249, f0);
+        f1 = _mm256_and_si256(mask249, f1);
+        f2 = _mm256_and_si256(mask249, f2);
+        f0 = _mm256_add_epi32(f0, f1);
+        f0 = _mm256_add_epi32(f0, f2);
+
+        f1 = _mm256_srli_epi32(f0, 3);
+        f0 = _mm256_add_epi32(f0, mask6db);
+        f0 = _mm256_sub_epi32(f0, f1);
+
+        f1 = _mm256_slli_epi32(f0, 10);
+        f2 = _mm256_srli_epi32(f0, 12);
+        f3 = _mm256_srli_epi32(f0, 2);
+        f0 = _mm256_and_si256(f0, mask07);
+        f1 = _mm256_and_si256(f1, mask70);
+        f2 = _mm256_and_si256(f2, mask07);
+        f3 = _mm256_and_si256(f3, mask70);
+        f0 = _mm256_add_epi16(f0, f1);
+        f1 = _mm256_add_epi16(f2, f3);
+        f0 = _mm256_sub_epi16(f0, mask3);
+        f1 = _mm256_sub_epi16(f1, mask3);
+
+        f2 = _mm256_unpacklo_epi32(f0, f1);
+        f3 = _mm256_unpackhi_epi32(f0, f1);
+
+        f0 = _mm256_permute2x128_si256(f2, f3, 0x20);
+        f1 = _mm256_permute2x128_si256(f2, f3, 0x31);
+
+        _mm256_store_si256((__m256i *)&r->coeffs[32 * i + 0], f0);
+        _mm256_store_si256((__m256i *)&r->coeffs[32 * i + 16], f1);
     }
 }
 
