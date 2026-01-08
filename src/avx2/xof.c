@@ -7,6 +7,31 @@
 #include "params.h"
 
 #define MLWQ_Q 3329
+#define REJ_UNIFORM_NBLOCKS ((12 * MLWQ_N / 8 * (1 << 12) / MLWQ_Q + SHAKE128_RATE) / SHAKE128_RATE)
+
+static unsigned int rej_uniform_avx2(int16_t *r,
+                                     const uint8_t *buf,
+                                     unsigned int buflen,
+                                     unsigned int ctr,
+                                     unsigned int *pos) {
+    unsigned int pos_local = *pos;
+
+    while (ctr < MLWQ_N && pos_local + 2 < buflen) {
+        uint16_t val0 = ((uint16_t)buf[pos_local] | ((uint16_t)buf[pos_local + 1] << 8)) & 0xFFF;
+        uint16_t val1 = ((uint16_t)(buf[pos_local + 1] >> 4) | ((uint16_t)buf[pos_local + 2] << 4)) & 0xFFF;
+        pos_local += 3;
+
+        if (val0 < MLWQ_Q) {
+            r[ctr++] = (int16_t)val0;
+        }
+        if (ctr < MLWQ_N && val1 < MLWQ_Q) {
+            r[ctr++] = (int16_t)val1;
+        }
+    }
+
+    *pos = pos_local;
+    return ctr;
+}
 
 // =========================================================================
 // 1. 矩阵生成 (支持任意 K 的分批处理)
@@ -23,10 +48,8 @@ void avx_xof_expand_matrix(poly_matrix *A, const uint8_t *seed) {
     uint8_t seeds[4][34];
     const uint8_t *in_ptrs[4];
     
-    // 缓冲区大小：4路 * 4 blocks * 168 bytes
-    // Uniform 采样效率较低，4 blocks 通常足够，不够再补
-    #define GEN_MATRIX_NBLOCKS 4
-    uint8_t out[4][GEN_MATRIX_NBLOCKS * 168];
+    // 缓冲区大小：4路 * REJ_UNIFORM_NBLOCKS * SHAKE128_RATE bytes
+    uint8_t out[4][REJ_UNIFORM_NBLOCKS * SHAKE128_RATE];
     
     while (batch_idx < total_polys) {
         // 1. 确定当前批次处理多少个 (1~4)
@@ -55,9 +78,12 @@ void avx_xof_expand_matrix(poly_matrix *A, const uint8_t *seed) {
         // 3. 运行 4x SHAKE
         keccakx4_state state;
         shake128x4_absorb_once(&state, in_ptrs[0], in_ptrs[1], in_ptrs[2], in_ptrs[3], 34);
-        shake128x4_squeezeblocks(out[0], out[1], out[2], out[3], GEN_MATRIX_NBLOCKS, &state);
+        shake128x4_squeezeblocks(out[0], out[1], out[2], out[3], REJ_UNIFORM_NBLOCKS, &state);
         
         // 4. 解析输出
+        unsigned int ctr[4] = {0, 0, 0, 0};
+        unsigned int pos[4] = {0, 0, 0, 0};
+        unsigned int max_len = REJ_UNIFORM_NBLOCKS * SHAKE128_RATE;
         for(unsigned int k=0; k<count; k++) {
             unsigned int current = batch_idx + k;
             unsigned int r = current / MLWQ_K;
@@ -66,42 +92,20 @@ void avx_xof_expand_matrix(poly_matrix *A, const uint8_t *seed) {
             int16_t *poly_r = A->row[r].vec[c].coeffs;
             uint8_t *buf = out[k];
             
-            int ctr = 0;
-            int pos = 0;
-            int max_len = GEN_MATRIX_NBLOCKS * 168;
-            
-            // Rejection Sampling
-            while(ctr < MLWQ_N && pos + 2 <= max_len) {
-                uint16_t val = (uint16_t)(buf[pos]) | ((uint16_t)(buf[pos+1]) << 8);
-                val &= 0xFFF; // 12-bit mask
-                
-                if(val < MLWQ_Q) {
-                    poly_r[ctr++] = val;
-                }
-                pos += 2; // 你的实现是每次取2字节尝试1个系数
-            }
-            
-            // 极低概率：没采够 -> 使用标量 SHAKE 继续采样
-            if (ctr < MLWQ_N) {
-                uint8_t extseed[34];
-                memcpy(extseed, seeds[k], 34); // 复用刚才配置好的 seed/nonce
-                keccak_state s_state;
-                shake128_init(&s_state);
-                shake128_absorb(&s_state, extseed, 34);
-                
-                // 跳过已经生成的字节 (保持确定性)
-                uint8_t dummy[GEN_MATRIX_NBLOCKS * 168];
-                shake128_squeeze(dummy, max_len, &s_state);
-                
-                while(ctr < MLWQ_N) {
-                    uint8_t chunk[2];
-                    shake128_squeeze(chunk, 2, &s_state);
-                    uint16_t val = (uint16_t)(chunk[0]) | ((uint16_t)(chunk[1]) << 8);
-                    val &= 0xFFF;
-                    if(val < MLWQ_Q) {
-                        poly_r[ctr++] = val;
-                    }
-                }
+            ctr[k] = rej_uniform_avx2(poly_r, buf, max_len, ctr[k], &pos[k]);
+        }
+
+        while (ctr[0] < MLWQ_N || ctr[1] < MLWQ_N || ctr[2] < MLWQ_N || ctr[3] < MLWQ_N) {
+            uint8_t more[4][SHAKE128_RATE];
+            shake128x4_squeezeblocks(more[0], more[1], more[2], more[3], 1, &state);
+
+            for (unsigned int k = 0; k < count; k++) {
+                unsigned int current = batch_idx + k;
+                unsigned int r = current / MLWQ_K;
+                unsigned int c = current % MLWQ_K;
+                int16_t *poly_r = A->row[r].vec[c].coeffs;
+                unsigned int local_pos = 0;
+                ctr[k] = rej_uniform_avx2(poly_r, more[k], SHAKE128_RATE, ctr[k], &local_pos);
             }
         }
         
