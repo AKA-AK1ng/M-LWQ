@@ -271,7 +271,7 @@ static const uint8_t idx[256][8] = {
 #define _mm256_cmpge_epu16(a, b) _mm256_cmpeq_epi16(_mm256_max_epu16(a, b), a)
 #define _mm_cmpge_epu16(a, b) _mm_cmpeq_epi16(_mm_max_epu16(a, b), a)
 
-unsigned int rej_uniform_avx(int16_t * restrict r, const uint8_t *buf)
+unsigned int KYBER_NAMESPACE(rej_uniform_avx)(int16_t * restrict r, const uint8_t *buf)
 {
   unsigned int ctr, pos;
   uint16_t val0, val1;
