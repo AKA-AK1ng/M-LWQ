@@ -3,11 +3,11 @@
 #include <immintrin.h>
 #include "xof.h"
 #include "fips202x4.h"
+#include "rejsample.h"
 #include "../common/fips202.h"
 #include "params.h"
 
 #define MLWQ_Q 3329
-#define REJ_UNIFORM_NBLOCKS ((12 * MLWQ_N / 8 * (1 << 12) / MLWQ_Q + SHAKE128_RATE) / SHAKE128_RATE)
 
 static unsigned int rej_uniform_avx2(int16_t *r,
                                      const uint8_t *buf,
@@ -48,8 +48,8 @@ void avx_xof_expand_matrix(poly_matrix *A, const uint8_t *seed) {
     uint8_t seeds[4][34];
     const uint8_t *in_ptrs[4];
     
-    // 缓冲区大小：4路 * REJ_UNIFORM_NBLOCKS * SHAKE128_RATE bytes
-    uint8_t out[4][REJ_UNIFORM_NBLOCKS * SHAKE128_RATE] __attribute__((aligned(32)));
+    // 缓冲区大小：4路 * REJ_UNIFORM_AVX_BUFLEN bytes
+    uint8_t out[4][REJ_UNIFORM_AVX_BUFLEN] __attribute__((aligned(32)));
     uint8_t more[4][SHAKE128_RATE] __attribute__((aligned(32)));
     
     while (batch_idx < total_polys) {
@@ -79,12 +79,10 @@ void avx_xof_expand_matrix(poly_matrix *A, const uint8_t *seed) {
         // 3. 运行 4x SHAKE
         keccakx4_state state;
         shake128x4_absorb_once(&state, in_ptrs[0], in_ptrs[1], in_ptrs[2], in_ptrs[3], 34);
-        shake128x4_squeezeblocks(out[0], out[1], out[2], out[3], REJ_UNIFORM_NBLOCKS, &state);
+        shake128x4_squeezeblocks(out[0], out[1], out[2], out[3], REJ_UNIFORM_AVX_NBLOCKS, &state);
         
         // 4. 解析输出
         unsigned int ctr[4] = {0, 0, 0, 0};
-        unsigned int pos[4] = {0, 0, 0, 0};
-        unsigned int max_len = REJ_UNIFORM_NBLOCKS * SHAKE128_RATE;
         for(unsigned int k=0; k<count; k++) {
             unsigned int current = batch_idx + k;
             unsigned int r = current / MLWQ_K;
@@ -93,7 +91,7 @@ void avx_xof_expand_matrix(poly_matrix *A, const uint8_t *seed) {
             int16_t *poly_r = A->row[r].vec[c].coeffs;
             uint8_t *buf = out[k];
             
-            ctr[k] = rej_uniform_avx2(poly_r, buf, max_len, ctr[k], &pos[k]);
+            ctr[k] = rej_uniform_avx(poly_r, buf);
         }
 
         for (unsigned int k = count; k < 4; k++) {
