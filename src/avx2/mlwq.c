@@ -72,12 +72,14 @@ void avx_mlwq_keygen(mlwq_pk *pk, mlwq_sk *sk, const uint8_t *seed_A, const uint
     avx_xof_expand_matrix(&A, seed_A);
     
     // 2. 并行采样私钥 s (SHAKE256x4 + AVX CBD3，与 MLWQ_ETA1 = 3 对齐)
-    // 与 ref 实现对齐：使用传入的 seed_d 作为噪声种子
+    // 使用私有噪声种子，避免与公开 seed_d 绑定
+    uint8_t seed_s[32];
+    random_bytes(seed_s, 32);
     uint8_t seeds[4][33];
     const uint8_t *in_ptrs[4];
     
     for(int i=0; i<4; i++) {
-        memcpy(seeds[i], seed_d, 32);
+        memcpy(seeds[i], seed_s, 32);
         seeds[i][32] = i; 
         in_ptrs[i] = seeds[i];
     }
