@@ -62,10 +62,12 @@ void ref_mlwq_keygen(mlwq_pk *pk, mlwq_sk *sk, const uint8_t *seed_A, const uint
     // print_debug("Matrix A[0][0]", A.row[0].vec[0].coeffs, 8);
 
     // [CHANGE] Use CBD for secret s
-    // seed_d is used as the noise seed here (Kyber convention: coins -> noise)
+    // 使用私有噪声种子，避免与公开 seed_d 绑定
+    uint8_t seed_s[32];
+    random_bytes(seed_s, 32);
     // We use nonces 0 to K-1 for s
     for(int i=0; i<MLWQ_K; i++) {
-        poly_getnoise_eta1(&sk->s.vec[i], seed_d, i);
+        poly_getnoise_eta1(&sk->s.vec[i], seed_s, i);
     }
     
     // Generate dither d_pk
@@ -169,7 +171,7 @@ void ref_mlwq_decrypt(uint8_t *msg, const mlwq_sk *sk, const mlwq_ciphertext *ct
 
 void ref_mlwq_kem_keygen(mlwq_pk *pk, mlwq_kem_sk *sk) {
     memset(pk, 0, sizeof(mlwq_pk));
-    uint8_t seed_A[32], seed_d[32]; // seed_d is also used as noise seed for s
+    uint8_t seed_A[32], seed_d[32];
     random_bytes(seed_A, 32);
     random_bytes(seed_d, 32);
 
