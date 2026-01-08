@@ -1,5 +1,6 @@
 #include "ntt.h"
 #include "consts.h"
+#include "../ref/reduce.h"
 #include <immintrin.h> // 需要 __m256i 定义
 
 extern void mlwq_avx_ntt_avx(__m256i *r, const __m256i *qdata);
@@ -38,10 +39,6 @@ void avx_poly_mul_ntt(poly *res, const poly *a, const poly *b) {
     // 6. 最终规约 (C层修正)
     // 这一步依然需要，但现在我们可以直接操作 res->coeffs
     for(int i=0; i<256; i++) {
-        int16_t val = res->coeffs[i];
-        int32_t t = (int32_t)val;
-        while (t < 0) t += 3329;
-        while (t >= 3329) t -= 3329;
-        res->coeffs[i] = (int16_t)t;
+        res->coeffs[i] = barrett_reduce(res->coeffs[i]);
     }
 }

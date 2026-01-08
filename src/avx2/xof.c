@@ -49,7 +49,8 @@ void avx_xof_expand_matrix(poly_matrix *A, const uint8_t *seed) {
     const uint8_t *in_ptrs[4];
     
     // 缓冲区大小：4路 * REJ_UNIFORM_NBLOCKS * SHAKE128_RATE bytes
-    uint8_t out[4][REJ_UNIFORM_NBLOCKS * SHAKE128_RATE];
+    uint8_t out[4][REJ_UNIFORM_NBLOCKS * SHAKE128_RATE] __attribute__((aligned(32)));
+    uint8_t more[4][SHAKE128_RATE] __attribute__((aligned(32)));
     
     while (batch_idx < total_polys) {
         // 1. 确定当前批次处理多少个 (1~4)
@@ -95,8 +96,11 @@ void avx_xof_expand_matrix(poly_matrix *A, const uint8_t *seed) {
             ctr[k] = rej_uniform_avx2(poly_r, buf, max_len, ctr[k], &pos[k]);
         }
 
+        for (unsigned int k = count; k < 4; k++) {
+            ctr[k] = MLWQ_N;
+        }
+
         while (ctr[0] < MLWQ_N || ctr[1] < MLWQ_N || ctr[2] < MLWQ_N || ctr[3] < MLWQ_N) {
-            uint8_t more[4][SHAKE128_RATE];
             shake128x4_squeezeblocks(more[0], more[1], more[2], more[3], 1, &state);
 
             for (unsigned int k = 0; k < count; k++) {
