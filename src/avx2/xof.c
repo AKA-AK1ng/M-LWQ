@@ -33,15 +33,6 @@ static unsigned int rej_uniform_avx2(int16_t *r,
     return ctr;
 }
 
-static inline uint16_t reduce_small(uint16_t val, uint16_t modulus, uint32_t v) {
-    uint32_t t = (v * val) >> 24;
-    uint16_t r = (uint16_t)(val - t * modulus);
-    if (r >= modulus) {
-        r -= modulus;
-    }
-    return r;
-}
-
 // =========================================================================
 // 1. 矩阵生成 (支持任意 K 的分批处理)
 // =========================================================================
@@ -137,8 +128,6 @@ void avx_xof_expand_poly_vec(poly_vec *v, const uint8_t *seed, int32_t modulus) 
     const uint8_t *in_ptrs[4];
     uint8_t out[4][168 * 4]; 
     
-    uint32_t v_reduce = (uint32_t)(((1U << 24) + modulus / 2) / modulus);
-
     while (batch_idx < MLWQ_K) {
         unsigned int remain = MLWQ_K - batch_idx;
         unsigned int count = (remain >= 4) ? 4 : remain;
@@ -168,7 +157,7 @@ void avx_xof_expand_poly_vec(poly_vec *v, const uint8_t *seed, int32_t modulus) 
             uint8_t *buf = out[k];
             for(int j=0; j<MLWQ_N; j++) {
                 uint16_t val = (uint16_t)buf[2*j] | ((uint16_t)buf[2*j+1]<<8);
-                v->vec[current_idx].coeffs[j] = (int16_t)reduce_small(val, (uint16_t)modulus, v_reduce);
+                v->vec[current_idx].coeffs[j] = val % modulus;
             }
         }
         
