@@ -6,6 +6,18 @@ extern void mlwq_avx_ntt_avx(__m256i *r, const __m256i *qdata);
 extern void mlwq_avx_invntt_avx(__m256i *r, const __m256i *qdata);
 extern void mlwq_avx_basemul_avx(__m256i *r, const __m256i *a, const __m256i *b, const __m256i *qdata);
 
+void avx_ntt(int16_t *r) {
+    mlwq_avx_ntt_avx((__m256i*)r, qdata.vec);
+}
+
+void avx_invntt(int16_t *r) {
+    mlwq_avx_invntt_avx((__m256i*)r, qdata.vec);
+}
+
+void avx_basemul(int16_t *r, const int16_t *a, const int16_t *b) {
+    mlwq_avx_basemul_avx((__m256i*)r, (const __m256i*)a, (const __m256i*)b, qdata.vec);
+}
+
 void avx_poly_mul_ntt(poly *res, const poly *a, const poly *b) {
     // [优化] 零拷贝模式
     // 因为 poly 结构体已经 32 字节对齐，我们可以直接转换指针
