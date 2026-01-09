@@ -137,8 +137,21 @@ static void avx_polyvec_getnoise_eta1(poly_vec *r, const uint8_t seed[32], uint8
                                   (uint8_t)(nonce_base + i + 3));
         i += 4;
     }
-    for (; i < MLWQ_K; i++) {
-        avx_poly_getnoise_eta1(&r->vec[i], seed, (uint8_t)(nonce_base + i));
+    if (i < MLWQ_K) {
+        poly tmp[3];
+        poly *p0 = &r->vec[i + 0];
+        poly *p1 = (i + 1 < MLWQ_K) ? &r->vec[i + 1] : &tmp[0];
+        poly *p2 = (i + 2 < MLWQ_K) ? &r->vec[i + 2] : &tmp[1];
+        poly *p3 = (i + 3 < MLWQ_K) ? &r->vec[i + 3] : &tmp[2];
+        avx_poly_getnoise_eta1_4x(p0,
+                                  p1,
+                                  p2,
+                                  p3,
+                                  seed,
+                                  (uint8_t)(nonce_base + i + 0),
+                                  (uint8_t)(nonce_base + i + 1),
+                                  (uint8_t)(nonce_base + i + 2),
+                                  (uint8_t)(nonce_base + i + 3));
     }
 }
 

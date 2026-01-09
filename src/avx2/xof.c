@@ -60,23 +60,30 @@ void avx_xof_expand_matrix(poly_matrix *A, const uint8_t *seed) {
     uint8_t out[4][REJ_UNIFORM_AVX_BUFLEN] __attribute__((aligned(32)));
     uint8_t more[4][SHAKE128_RATE] __attribute__((aligned(32)));
     
+    __m256i seed_vec = _mm256_loadu_si256((const __m256i *)seed);
+    unsigned int row = batch_idx / MLWQ_K;
+    unsigned int col = batch_idx % MLWQ_K;
+
     while (batch_idx < total_polys) {
         // 1. 确定当前批次处理多少个 (1~4)
         unsigned int remain = total_polys - batch_idx;
         unsigned int count = (remain >= 4) ? 4 : remain;
         
         // 2. 准备种子
-        for(unsigned int k=0; k<count; k++) {
-            unsigned int current = batch_idx + k;
-            unsigned int r = current / MLWQ_K; // 行索引
-            unsigned int c = current % MLWQ_K; // 列索引
-            
-            memcpy(seeds[k], seed, 32);
+        unsigned int r = row;
+        unsigned int c = col;
+        for (unsigned int k = 0; k < count; k++) {
+            _mm256_storeu_si256((__m256i *)seeds[k], seed_vec);
             // Kyber/MLWQ 标准序: seed || j || i  (Col, Row)
-            // 注意：Little Endian 下，先行后列遍历对应 Nonce 顺序
-            seeds[k][32] = c; 
-            seeds[k][33] = r; 
+            seeds[k][32] = c;
+            seeds[k][33] = r;
             in_ptrs[k] = seeds[k];
+
+            c++;
+            if (c == MLWQ_K) {
+                c = 0;
+                r++;
+            }
         }
         
         // 如果不足4个，剩下的指针指向 seeds[0] 以防 crash (AVX Load 需要有效地址)
@@ -120,6 +127,8 @@ void avx_xof_expand_matrix(poly_matrix *A, const uint8_t *seed) {
         }
         
         batch_idx += count;
+        row = r;
+        col = c;
     }
 }
 
