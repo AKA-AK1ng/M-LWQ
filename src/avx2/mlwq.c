@@ -2,6 +2,7 @@
 #include "poly.h"
 #include "ntt.h"
 #include "xof.h"
+#include "align.h"
 #include "../common/random.h"
 #include "../common/fips202.h" 
 #include <string.h>
@@ -73,6 +74,44 @@ static void avx_cbd3_simd(poly *r, const uint8_t *buf) {
     }
 }
 
+// =========================================================================
+// AVX2 4x 噪声采样 (对齐 Kyber 的 4x SHAKE256 + CBD3 流程)
+// =========================================================================
+static void avx_poly_getnoise_eta1_4x(poly *r0,
+                                      poly *r1,
+                                      poly *r2,
+                                      poly *r3,
+                                      const uint8_t seed[32],
+                                      uint8_t nonce0,
+                                      uint8_t nonce1,
+                                      uint8_t nonce2,
+                                      uint8_t nonce3) {
+    #define NOISE_NBLOCKS ((MLWQ_ETA1 * MLWQ_N / 4 + SHAKE256_RATE - 1) / SHAKE256_RATE)
+    ALIGNED_UINT8(NOISE_NBLOCKS * SHAKE256_RATE) buf[4];
+    __m256i f;
+    keccakx4_state state;
+
+    f = _mm256_loadu_si256((__m256i *)seed);
+    _mm256_store_si256(buf[0].vec, f);
+    _mm256_store_si256(buf[1].vec, f);
+    _mm256_store_si256(buf[2].vec, f);
+    _mm256_store_si256(buf[3].vec, f);
+
+    buf[0].coeffs[32] = nonce0;
+    buf[1].coeffs[32] = nonce1;
+    buf[2].coeffs[32] = nonce2;
+    buf[3].coeffs[32] = nonce3;
+
+    shake256x4_absorb_once(&state, buf[0].coeffs, buf[1].coeffs, buf[2].coeffs, buf[3].coeffs, 33);
+    shake256x4_squeezeblocks(buf[0].coeffs, buf[1].coeffs, buf[2].coeffs, buf[3].coeffs, NOISE_NBLOCKS, &state);
+
+    avx_cbd3_simd(r0, buf[0].coeffs);
+    avx_cbd3_simd(r1, buf[1].coeffs);
+    avx_cbd3_simd(r2, buf[2].coeffs);
+    avx_cbd3_simd(r3, buf[3].coeffs);
+    #undef NOISE_NBLOCKS
+}
+
 // -------------------------------------------------------------------------
 // PKE KeyGen
 // -------------------------------------------------------------------------
@@ -85,26 +124,13 @@ void avx_mlwq_keygen(mlwq_pk *pk, mlwq_sk *sk, const uint8_t *seed_A, const uint
     // 使用私有噪声种子，避免与公开 seed_d 绑定
     uint8_t seed_s[32];
     random_bytes(seed_s, 32);
-    uint8_t seeds[4][33];
-    const uint8_t *in_ptrs[4];
-    
-    for(int i=0; i<4; i++) {
-        memcpy(seeds[i], seed_s, 32);
-        seeds[i][32] = i; 
-        in_ptrs[i] = seeds[i];
-    }
-    
-    // CBD3 需要 192 bytes, SHAKE256 rate 136. Need 2 blocks.
-    uint8_t out[4][SHAKE256_RATE * 2];
-    
-    keccakx4_state state;
-    shake256x4_absorb_once(&state, in_ptrs[0], in_ptrs[1], in_ptrs[2], in_ptrs[3], 33);
-    shake256x4_squeezeblocks(out[0], out[1], out[2], out[3], 2, &state);
-    
-    for(int i=0; i<MLWQ_K; i++) {
-        // [Change] 使用 AVX2 优化的 CBD3
-        avx_cbd3_simd(&sk->s.vec[i], out[i]);
-    }
+    poly s2, s3;
+    avx_poly_getnoise_eta1_4x(&sk->s.vec[0],
+                              &sk->s.vec[1],
+                              &s2,
+                              &s3,
+                              seed_s,
+                              0, 1, 2, 3);
 
     // 3. 生成 d_pk (SHAKE128)
     poly_vec d_pk;
@@ -131,24 +157,13 @@ void avx_mlwq_encrypt(mlwq_ciphertext *ct, const mlwq_pk *pk, const uint8_t *msg
     // 1. 并行采样噪声 r (SHAKE256x4 + AVX CBD3)
     poly_vec r;
     
-    uint8_t seeds[4][33];
-    const uint8_t *in_ptrs[4];
-    uint8_t out[4][SHAKE256_RATE * 2];
-    
-    for(int i=0; i<4; i++) {
-        memcpy(seeds[i], seed_ct, 32);
-        seeds[i][32] = i; 
-        in_ptrs[i] = seeds[i];
-    }
-    
-    keccakx4_state state;
-    shake256x4_absorb_once(&state, in_ptrs[0], in_ptrs[1], in_ptrs[2], in_ptrs[3], 33);
-    shake256x4_squeezeblocks(out[0], out[1], out[2], out[3], 2, &state);
-    
-    for(int i=0; i<MLWQ_K; i++) {
-        // [Change] 使用 AVX2 优化的 CBD3
-        avx_cbd3_simd(&r.vec[i], out[i]);
-    }
+    poly r2, r3;
+    avx_poly_getnoise_eta1_4x(&r.vec[0],
+                              &r.vec[1],
+                              &r2,
+                              &r3,
+                              seed_ct,
+                              0, 1, 2, 3);
 
     poly_vec r_ntt = r;
     for(int i=0; i<MLWQ_K; ++i) {
