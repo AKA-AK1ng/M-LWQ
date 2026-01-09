@@ -19,6 +19,7 @@ extern void ref_xof_expand_poly(poly *v, const uint8_t *seed, int32_t modulus);
 extern void ref_poly_matrix_vec_mul(poly_vec *res, const poly_matrix *A, const poly_vec *s);
 extern void ref_poly_quantize(poly *res, const poly *v, const poly *d, int32_t P);
 extern void ref_poly_dequantize(poly *res, const poly *b, int32_t P);
+extern void ref_poly_getnoise_eta1(poly *r, const uint8_t *seed, uint8_t nonce);
 extern void ref_poly_msg_decode(uint8_t *msg, const poly *p);
 extern void ref_poly_msg_encode(poly *res, const uint8_t *msg);
 extern void ref_mlwq_keygen(mlwq_pk *pk, mlwq_sk *sk, const uint8_t *seed_A, const uint8_t *seed_d);
@@ -35,6 +36,7 @@ extern void avx_poly_matrix_vec_mul(poly_vec *res, const poly_matrix *A, const p
 extern void avx_poly_quantize(poly *res, const poly *v, const poly *d, int32_t P);
 extern void avx_poly_dequantize(poly *res, const poly *b, int32_t P);
 extern void avx_poly_msg_decode(uint8_t *msg, const poly *p);
+extern void avx_polyvec_getnoise_eta1(poly_vec *r, const uint8_t seed[32], uint8_t nonce_base);
 extern void avx_mlwq_keygen(mlwq_pk *pk, mlwq_sk *sk, const uint8_t *seed_A, const uint8_t *seed_d);
 extern void avx_mlwq_encrypt(mlwq_ciphertext *ct, const mlwq_pk *pk, const uint8_t *msg, const uint8_t *seed_ct);
 extern void avx_mlwq_kem_keygen(mlwq_pk *pk, mlwq_kem_sk *sk);
@@ -352,14 +354,20 @@ static uint64_t measure_cbd_scalar() {
 void measure_pke_keygen_ref() {
     uint64_t t1, t2;
     uint64_t dt_mat, dt_samp, dt_dith, dt_arith, dt_quant; 
-    uint8_t seed_A[32], seed_d[32];
+    uint8_t seed_A[32], seed_d[32], seed_s[32];
     random_bytes(seed_A, 32); random_bytes(seed_d, 32);
     poly_matrix A; poly_vec s, d_pk, As, b_q;
 
     t1 = start_cycles(); ref_xof_expand_matrix(&A, seed_A); t2 = stop_cycles();
     dt_mat = t2 - t1; stats_ref.keygen_gen_matrix += dt_mat;
 
-    dt_samp = measure_cbd_scalar();
+    random_bytes(seed_s, 32);
+    t1 = start_cycles();
+    for (int i = 0; i < MLWQ_K; i++) {
+        ref_poly_getnoise_eta1(&s.vec[i], seed_s, (uint8_t)i);
+    }
+    t2 = stop_cycles();
+    dt_samp = t2 - t1;
     stats_ref.keygen_sample += dt_samp;
 
     t1 = start_cycles(); ref_xof_expand_poly_vec(&d_pk, seed_d, MLWQ_Q / P_PK); t2 = stop_cycles();
@@ -386,7 +394,12 @@ void measure_pke_encrypt_ref() {
     t1 = start_cycles(); ref_xof_expand_matrix(&A, seed_ct); t2 = stop_cycles();
     dt_mat = t2 - t1; stats_ref.enc_gen_matrix += dt_mat; 
 
-    dt_samp = measure_cbd_scalar();
+    t1 = start_cycles();
+    for (int i = 0; i < MLWQ_K; i++) {
+        ref_poly_getnoise_eta1(&r.vec[i], seed_ct, (uint8_t)i);
+    }
+    t2 = stop_cycles();
+    dt_samp = t2 - t1;
     stats_ref.enc_sample += dt_samp;
 
     t1 = start_cycles(); ref_xof_expand_poly_vec(&d_u, seed_ct, MLWQ_Q / P_U); t2 = stop_cycles();
@@ -473,7 +486,7 @@ void measure_pke_decrypt_ref() {
 void measure_pke_keygen_avx() {
     uint64_t t1, t2;
     uint64_t dt_mat, dt_samp, dt_dith, dt_arith, dt_quant;
-    uint8_t seed_A[32], seed_d[32];
+    uint8_t seed_A[32], seed_d[32], seed_s[32];
     poly_matrix A; poly_vec s, d_pk, As, b_q;
     
     random_bytes(seed_A, 32);
@@ -482,7 +495,11 @@ void measure_pke_keygen_avx() {
     t1 = start_cycles(); avx_xof_expand_matrix(&A, seed_A); t2 = stop_cycles();
     dt_mat = t2 - t1; stats_avx.keygen_gen_matrix += dt_mat;
 
-    dt_samp = measure_cbd_scalar(); 
+    random_bytes(seed_s, 32);
+    t1 = start_cycles();
+    avx_polyvec_getnoise_eta1(&s, seed_s, 0);
+    t2 = stop_cycles();
+    dt_samp = t2 - t1;
     stats_avx.keygen_sample += dt_samp;
 
     t1 = start_cycles(); avx_xof_expand_poly_vec(&d_pk, seed_d, MLWQ_Q / P_PK); t2 = stop_cycles();
@@ -511,7 +528,10 @@ void measure_pke_encrypt_avx() {
     t1 = start_cycles(); avx_xof_expand_matrix(&A, seed_ct); t2 = stop_cycles();
     dt_mat = t2 - t1; stats_avx.enc_gen_matrix += dt_mat;
 
-    dt_samp = measure_cbd_scalar(); 
+    t1 = start_cycles();
+    avx_polyvec_getnoise_eta1(&r, seed_ct, 0);
+    t2 = stop_cycles();
+    dt_samp = t2 - t1;
     stats_avx.enc_sample += dt_samp;
 
     t1 = start_cycles(); avx_xof_expand_poly_vec(&d_u, seed_ct, MLWQ_Q / P_U); t2 = stop_cycles();

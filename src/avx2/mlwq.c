@@ -130,7 +130,7 @@ void avx_poly_getnoise_eta1(poly *r, const uint8_t seed[32], uint8_t nonce) {
     avx_poly_cbd_eta1(r, buf.vec);
 }
 
-static void avx_polyvec_getnoise_eta1(poly_vec *r, const uint8_t seed[32], uint8_t nonce_base) {
+void avx_polyvec_getnoise_eta1(poly_vec *r, const uint8_t seed[32], uint8_t nonce_base) {
     int i = 0;
     while (i + 3 < MLWQ_K) {
         avx_poly_getnoise_eta1_4x(&r->vec[i + 0],

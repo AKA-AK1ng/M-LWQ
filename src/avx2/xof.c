@@ -17,6 +17,13 @@ static inline uint16_t fast_mod_u16(uint16_t val, uint16_t mod) {
     return (uint16_t)r;
 }
 
+static inline uint16_t fast_mod_u16_precomp(uint16_t val, uint16_t mod, uint32_t recip) {
+    uint32_t q = (uint32_t)(((uint64_t)val * recip) >> 32);
+    uint32_t r = val - q * mod;
+    if (r >= mod) r -= mod;
+    return (uint16_t)r;
+}
+
 static unsigned int rej_uniform_avx2(int16_t *r,
                                      const uint8_t *buf,
                                      unsigned int buflen,
@@ -149,6 +156,7 @@ void avx_xof_expand_poly_vec(poly_vec *v, const uint8_t *seed, int32_t modulus) 
     const uint8_t *in_ptrs[4];
     uint8_t out[4][SHAKE128_RATE * nblocks];
     uint16_t mod = (uint16_t)modulus;
+    uint32_t recip = (uint32_t)(((uint64_t)1 << 32) / mod);
     
     while (batch_idx < MLWQ_K) {
         unsigned int remain = MLWQ_K - batch_idx;
@@ -179,7 +187,7 @@ void avx_xof_expand_poly_vec(poly_vec *v, const uint8_t *seed, int32_t modulus) 
             uint8_t *buf = out[k];
             for(int j=0; j<MLWQ_N; j++) {
                 uint16_t val = (uint16_t)buf[2*j] | ((uint16_t)buf[2*j+1]<<8);
-                v->vec[current_idx].coeffs[j] = fast_mod_u16(val, mod);
+                v->vec[current_idx].coeffs[j] = fast_mod_u16_precomp(val, mod, recip);
             }
         }
         
@@ -194,6 +202,7 @@ void avx_xof_expand_poly(poly *v, const uint8_t *seed, int32_t modulus) {
     const unsigned int nblocks = (MLWQ_N * 2 + SHAKE128_RATE - 1) / SHAKE128_RATE;
     uint8_t out[SHAKE128_RATE * nblocks];
     uint16_t mod = (uint16_t)modulus;
+    uint32_t recip = (uint32_t)(((uint64_t)1 << 32) / mod);
 
     keccak_state state;
     shake128_absorb_once(&state, seed, 33);
@@ -202,6 +211,6 @@ void avx_xof_expand_poly(poly *v, const uint8_t *seed, int32_t modulus) {
     uint8_t *buf = out;
     for (int j = 0; j < MLWQ_N; j++) {
         uint16_t val = (uint16_t)buf[2 * j] | ((uint16_t)buf[2 * j + 1] << 8);
-        v->coeffs[j] = fast_mod_u16(val, mod);
+        v->coeffs[j] = fast_mod_u16_precomp(val, mod, recip);
     }
 }
