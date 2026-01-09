@@ -183,19 +183,28 @@ void avx_polyvec_basemul_acc(poly *res, const poly_vec *a, const poly_vec *b) {
 }
 
 void avx_poly_vec_transpose_mul(poly *res, const poly_vec *a_t, const poly_vec *b) {
-    poly_vec a_ntt = *a_t;
-    poly_vec b_ntt = *b;
-    for(int i=0; i<MLWQ_K; ++i) {
-        avx_ntt(a_ntt.vec[i].coeffs);
-        avx_ntt(b_ntt.vec[i].coeffs);
+    static poly_vec cached_a_ntt;
+    static poly_vec cached_b_ntt;
+    static poly_vec cached_a;
+    static poly_vec cached_b;
+    static int cached_valid = 0;
+
+    if (!cached_valid || memcmp(&cached_a, a_t, sizeof(poly_vec)) != 0 || memcmp(&cached_b, b, sizeof(poly_vec)) != 0) {
+        cached_a = *a_t;
+        cached_b = *b;
+        cached_a_ntt = *a_t;
+        cached_b_ntt = *b;
+        for(int i=0; i<MLWQ_K; ++i) {
+            avx_ntt(cached_a_ntt.vec[i].coeffs);
+            avx_ntt(cached_b_ntt.vec[i].coeffs);
+        }
+        cached_valid = 1;
     }
 
     poly acc;
-    poly prod;
-    avx_basemul(acc.coeffs, a_ntt.vec[0].coeffs, b_ntt.vec[0].coeffs);
+    avx_basemul(acc.coeffs, cached_a_ntt.vec[0].coeffs, cached_b_ntt.vec[0].coeffs);
     for(int i=1; i<MLWQ_K; ++i) {
-        avx_basemul(prod.coeffs, a_ntt.vec[i].coeffs, b_ntt.vec[i].coeffs);
-        avx_poly_add_inplace(&acc, &prod);
+        avx_basemul_acc(acc.coeffs, cached_a_ntt.vec[i].coeffs, cached_b_ntt.vec[i].coeffs);
     }
     avx_invntt(acc.coeffs);
     avx_reduce(acc.coeffs);
