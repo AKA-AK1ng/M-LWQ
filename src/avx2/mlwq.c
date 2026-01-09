@@ -209,6 +209,9 @@ void avx_mlwq_encrypt(mlwq_ciphertext *ct, const mlwq_pk *pk, const uint8_t *msg
     static poly_matrix cached_A_ntt;
     static uint8_t cached_seed_A[32];
     static int cached_A_valid = 0;
+    static poly_vec cached_b_ntt;
+    static poly_vec cached_b_q;
+    static int cached_b_valid = 0;
 
     if (cached_A_valid && memcmp(cached_seed_A, pk->seed_A, 32) == 0) {
         A_ntt = cached_A_ntt;
@@ -266,16 +269,21 @@ void avx_mlwq_encrypt(mlwq_ciphertext *ct, const mlwq_pk *pk, const uint8_t *msg
     poly_vec Atr;
     avx_poly_matrix_vec_mul_ntt(&Atr, &At_ntt, &r_ntt);
     
-    poly_vec b_deq;
-    for(int i=0; i<MLWQ_K; ++i) avx_poly_dequantize(&b_deq.vec[i], &pk->b_q.vec[i], P_PK);
-    
-    poly_vec b_deq_ntt = b_deq;
-    for(int i=0; i<MLWQ_K; ++i) {
-        avx_ntt(b_deq_ntt.vec[i].coeffs);
+    if (!cached_b_valid || memcmp(&cached_b_q, &pk->b_q, sizeof(poly_vec)) != 0) {
+        poly_vec b_deq;
+        for(int i=0; i<MLWQ_K; ++i) {
+            avx_poly_dequantize(&b_deq.vec[i], &pk->b_q.vec[i], P_PK);
+        }
+        cached_b_ntt = b_deq;
+        for(int i=0; i<MLWQ_K; ++i) {
+            avx_ntt(cached_b_ntt.vec[i].coeffs);
+        }
+        cached_b_q = pk->b_q;
+        cached_b_valid = 1;
     }
     
     poly v_val;
-    avx_poly_vec_transpose_mul_ntt(&v_val, &b_deq_ntt, &r_ntt);
+    avx_poly_vec_transpose_mul_ntt(&v_val, &cached_b_ntt, &r_ntt);
     
     poly m_poly;
     avx_poly_msg_encode(&m_poly, msg);
