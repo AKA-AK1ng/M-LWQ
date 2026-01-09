@@ -15,6 +15,7 @@
 // -------------------------------------------------------------------------
 extern void ref_xof_expand_matrix(poly_matrix *A, const uint8_t *seed);
 extern void ref_xof_expand_poly_vec(poly_vec *v, const uint8_t *seed, int32_t modulus);
+extern void ref_xof_expand_poly(poly *v, const uint8_t *seed, int32_t modulus);
 extern void ref_poly_matrix_vec_mul(poly_vec *res, const poly_matrix *A, const poly_vec *s);
 extern void ref_poly_quantize(poly *res, const poly *v, const poly *d, int32_t P);
 extern void ref_poly_dequantize(poly *res, const poly *b, int32_t P);
@@ -29,6 +30,7 @@ extern void ref_poly_vec_transpose_mul(poly *res, const poly_vec *a_t, const pol
 
 extern void avx_xof_expand_matrix(poly_matrix *A, const uint8_t *seed);
 extern void avx_xof_expand_poly_vec(poly_vec *v, const uint8_t *seed, int32_t modulus);
+extern void avx_xof_expand_poly(poly *v, const uint8_t *seed, int32_t modulus);
 extern void avx_poly_matrix_vec_mul(poly_vec *res, const poly_matrix *A, const poly_vec *s);
 extern void avx_poly_quantize(poly *res, const poly *v, const poly *d, int32_t P);
 extern void avx_poly_dequantize(poly *res, const poly *b, int32_t P);
@@ -394,13 +396,7 @@ void measure_pke_encrypt_ref() {
     uint8_t d_seed[33];
     memcpy(d_seed, seed_ct, 32);
     d_seed[32] = MLWQ_K + 1;
-    uint8_t buf_v[MLWQ_N * 2];
-    shake128(buf_v, sizeof(buf_v), d_seed, 33);
-    uint16_t mod_v = (uint16_t)(MLWQ_Q / P_V);
-    for (int k = 0; k < MLWQ_N; ++k) {
-        uint16_t val = (uint16_t)buf_v[2 * k] | ((uint16_t)buf_v[2 * k + 1] << 8);
-        d_v.coeffs[k] = (int16_t)(val % mod_v);
-    }
+    ref_xof_expand_poly(&d_v, d_seed, MLWQ_Q / P_V);
     t2 = stop_cycles();
     dt_dith_v = t2 - t1; stats_ref.enc_gen_dither_v += dt_dith_v;
 
@@ -525,17 +521,7 @@ void measure_pke_encrypt_avx() {
     uint8_t d_seed[33];
     memcpy(d_seed, seed_ct, 32);
     d_seed[32] = MLWQ_K + 1;
-    uint8_t buf_v[MLWQ_N * 2];
-    shake128(buf_v, sizeof(buf_v), d_seed, 33);
-    uint16_t mod_v = (uint16_t)(MLWQ_Q / P_V);
-    uint32_t recip_v = (uint32_t)(((uint64_t)1 << 32) / mod_v);
-    for (int k = 0; k < MLWQ_N; ++k) {
-        uint16_t val = (uint16_t)buf_v[2 * k] | ((uint16_t)buf_v[2 * k + 1] << 8);
-        uint32_t q = (uint32_t)(((uint64_t)val * recip_v) >> 32);
-        uint32_t r = val - q * mod_v;
-        if (r >= mod_v) r -= mod_v;
-        d_v.coeffs[k] = (int16_t)r;
-    }
+    avx_xof_expand_poly(&d_v, d_seed, MLWQ_Q / P_V);
     t2 = stop_cycles();
     dt_dith_v = t2 - t1; stats_avx.enc_gen_dither_v += dt_dith_v;
 

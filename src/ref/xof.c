@@ -136,3 +136,24 @@ void ref_xof_expand_poly_vec(poly_vec *v, const uint8_t *seed, int32_t modulus) 
     }
   }
 }
+
+// -------------------------------------------------------------------------
+// 3. 单多项式生成 (用于 d_v 等单项)
+// -------------------------------------------------------------------------
+void ref_xof_expand_poly(poly *v, const uint8_t *seed, int32_t modulus) {
+  unsigned int ctr;
+  unsigned int buflen;
+  uint8_t buf[2 * SHAKE128_RATE];
+  keccak_state state;
+
+  shake128_absorb_once(&state, seed, 33);
+  shake128_squeezeblocks(buf, 2, &state);
+  buflen = 2 * SHAKE128_RATE;
+  ctr = rej_uniform_mod(v->coeffs, MLWQ_N, buf, buflen, modulus);
+
+  while (ctr < MLWQ_N) {
+    shake128_squeezeblocks(buf, 1, &state);
+    buflen = SHAKE128_RATE;
+    ctr += rej_uniform_mod(v->coeffs + ctr, MLWQ_N - ctr, buf, buflen, modulus);
+  }
+}

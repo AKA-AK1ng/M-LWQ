@@ -116,15 +116,9 @@ void ref_mlwq_encrypt(mlwq_ciphertext *ct, const mlwq_pk *pk, const uint8_t *msg
     d_seed[32] = 10; 
     ref_xof_expand_poly_vec(&d_u, d_seed, MLWQ_Q / P_U);
     
-    // d_v (Manually expanding 1 poly)
-    d_seed[32] = 11; 
-    uint8_t buf[MLWQ_N*2];
-    shake128(buf, sizeof(buf), d_seed, 33);
-    int32_t mod_v = MLWQ_Q / P_V;
-    for(int k=0; k<MLWQ_N; ++k) {
-        uint16_t val = (uint16_t)buf[2*k] | ((uint16_t)buf[2*k+1]<<8);
-        d_v.coeffs[k] = val % mod_v;
-    }
+    // d_v (Single poly expansion)
+    d_seed[32] = 11;
+    ref_xof_expand_poly(&d_v, d_seed, MLWQ_Q / P_V);
 
     poly_matrix At;
     for(int i=0; i<MLWQ_K; ++i) for(int j=0; j<MLWQ_K; ++j) At.row[i].vec[j] = A.row[j].vec[i];

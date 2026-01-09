@@ -248,19 +248,8 @@ void avx_mlwq_encrypt(mlwq_ciphertext *ct, const mlwq_pk *pk, const uint8_t *msg
     avx_xof_expand_poly_vec(&d_u, d_seed, MLWQ_Q / P_U);
     
     // 3. 生成 d_v (SHAKE128, XOF)
-    d_seed[32] = MLWQ_K + 1; 
-    uint8_t buf_v[MLWQ_N*2];
-    shake128(buf_v, sizeof(buf_v), d_seed, 33);
-    
-    uint16_t mod_v = (uint16_t)(MLWQ_Q / P_V);
-    uint32_t recip_v = (uint32_t)(((uint64_t)1 << 32) / mod_v);
-    for(int k=0; k<MLWQ_N; ++k) {
-        uint16_t val = (uint16_t)buf_v[2*k] | ((uint16_t)buf_v[2*k+1]<<8);
-        uint32_t q = (uint32_t)(((uint64_t)val * recip_v) >> 32);
-        uint32_t r = val - q * mod_v;
-        if (r >= mod_v) r -= mod_v;
-        d_v.coeffs[k] = (int16_t)r;
-    }
+    d_seed[32] = MLWQ_K + 1;
+    avx_xof_expand_poly(&d_v, d_seed, MLWQ_Q / P_V);
 
     // 后续计算...
     poly_matrix At_ntt;

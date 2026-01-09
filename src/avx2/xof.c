@@ -186,3 +186,31 @@ void avx_xof_expand_poly_vec(poly_vec *v, const uint8_t *seed, int32_t modulus) 
         batch_idx += count;
     }
 }
+
+// =========================================================================
+// 3. 单多项式生成 (用于 d_v 等单项)
+// =========================================================================
+void avx_xof_expand_poly(poly *v, const uint8_t *seed, int32_t modulus) {
+    uint8_t seeds[4][33];
+    const uint8_t *in_ptrs[4];
+    const unsigned int nblocks = (MLWQ_N * 2 + SHAKE128_RATE - 1) / SHAKE128_RATE;
+    uint8_t out[4][SHAKE128_RATE * nblocks];
+    uint16_t mod = (uint16_t)modulus;
+
+    memcpy(seeds[0], seed, 33);
+    in_ptrs[0] = seeds[0];
+    for (int k = 1; k < 4; k++) {
+        memcpy(seeds[k], seed, 33);
+        in_ptrs[k] = seeds[k];
+    }
+
+    keccakx4_state state;
+    shake128x4_absorb_once(&state, in_ptrs[0], in_ptrs[1], in_ptrs[2], in_ptrs[3], 33);
+    shake128x4_squeezeblocks(out[0], out[1], out[2], out[3], nblocks, &state);
+
+    uint8_t *buf = out[0];
+    for (int j = 0; j < MLWQ_N; j++) {
+        uint16_t val = (uint16_t)buf[2 * j] | ((uint16_t)buf[2 * j + 1] << 8);
+        v->coeffs[j] = fast_mod_u16(val, mod);
+    }
+}
