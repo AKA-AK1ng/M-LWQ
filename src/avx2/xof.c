@@ -143,11 +143,11 @@ void avx_xof_expand_matrix(poly_matrix *A, const uint8_t *seed) {
 // =========================================================================
 void avx_xof_expand_poly_vec(poly_vec *v, const uint8_t *seed, int32_t modulus) {
     // 同样需要分批处理，支持 K > 4 的情况 (虽然 L5 K=4 正好填满，但为了鲁棒性)
-    
+    const unsigned int nblocks = (MLWQ_N * 2 + SHAKE128_RATE - 1) / SHAKE128_RATE;
     unsigned int batch_idx = 0;
     uint8_t seeds[4][33];
     const uint8_t *in_ptrs[4];
-    uint8_t out[4][168 * 4]; 
+    uint8_t out[4][SHAKE128_RATE * nblocks];
     uint16_t mod = (uint16_t)modulus;
     
     while (batch_idx < MLWQ_K) {
@@ -172,7 +172,7 @@ void avx_xof_expand_poly_vec(poly_vec *v, const uint8_t *seed, int32_t modulus) 
         
         keccakx4_state state;
         shake128x4_absorb_once(&state, in_ptrs[0], in_ptrs[1], in_ptrs[2], in_ptrs[3], 33);
-        shake128x4_squeezeblocks(out[0], out[1], out[2], out[3], 4, &state);
+        shake128x4_squeezeblocks(out[0], out[1], out[2], out[3], nblocks, &state);
         
         for(unsigned int k=0; k<count; k++) {
             unsigned int current_idx = batch_idx + k;
@@ -191,24 +191,15 @@ void avx_xof_expand_poly_vec(poly_vec *v, const uint8_t *seed, int32_t modulus) 
 // 3. 单多项式生成 (用于 d_v 等单项)
 // =========================================================================
 void avx_xof_expand_poly(poly *v, const uint8_t *seed, int32_t modulus) {
-    uint8_t seeds[4][33];
-    const uint8_t *in_ptrs[4];
     const unsigned int nblocks = (MLWQ_N * 2 + SHAKE128_RATE - 1) / SHAKE128_RATE;
-    uint8_t out[4][SHAKE128_RATE * nblocks];
+    uint8_t out[SHAKE128_RATE * nblocks];
     uint16_t mod = (uint16_t)modulus;
 
-    memcpy(seeds[0], seed, 33);
-    in_ptrs[0] = seeds[0];
-    for (int k = 1; k < 4; k++) {
-        memcpy(seeds[k], seed, 33);
-        in_ptrs[k] = seeds[k];
-    }
+    keccak_state state;
+    shake128_absorb_once(&state, seed, 33);
+    shake128_squeezeblocks(out, nblocks, &state);
 
-    keccakx4_state state;
-    shake128x4_absorb_once(&state, in_ptrs[0], in_ptrs[1], in_ptrs[2], in_ptrs[3], 33);
-    shake128x4_squeezeblocks(out[0], out[1], out[2], out[3], nblocks, &state);
-
-    uint8_t *buf = out[0];
+    uint8_t *buf = out;
     for (int j = 0; j < MLWQ_N; j++) {
         uint16_t val = (uint16_t)buf[2 * j] | ((uint16_t)buf[2 * j + 1] << 8);
         v->coeffs[j] = fast_mod_u16(val, mod);
