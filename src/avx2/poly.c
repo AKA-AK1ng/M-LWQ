@@ -216,36 +216,49 @@ void avx_poly_vec_transpose_mul_ntt(poly *res, const poly_vec *a_ntt, const poly
 }
 
 void avx_poly_msg_encode(poly *res, const uint8_t *msg) {
-    static int16_t table[256][8];
+    static __m128i table128[256];
     static int table_ready = 0;
     if (!table_ready) {
         int16_t scale = MLWQ_Q / 2;
         for (int v = 0; v < 256; v++) {
+            int16_t tmp[8];
             for (int b = 0; b < 8; b++) {
-                table[v][b] = (v & (1 << b)) ? scale : 0;
+                tmp[b] = (v & (1 << b)) ? scale : 0;
             }
+            table128[v] = _mm_loadu_si128((const __m128i *)tmp);
         }
         table_ready = 1;
     }
 
-    for (int i = 0; i < MLWQ_N / 8; i++) {
-        const int16_t *src = table[msg[i]];
-        memcpy(&res->coeffs[8 * i], src, sizeof(int16_t) * 8);
+    for (int i = 0; i < MLWQ_N / 16; i++) {
+        __m128i lo = table128[msg[2 * i]];
+        __m128i hi = table128[msg[2 * i + 1]];
+        __m256i packed = _mm256_castsi128_si256(lo);
+        packed = _mm256_inserti128_si256(packed, hi, 1);
+        _mm256_store_si256((__m256i *)&res->coeffs[16 * i], packed);
     }
 }
 
 void avx_poly_msg_decode(uint8_t *msg, const poly *p) {
     memset(msg, 0, 32);
-    int32_t lower = MLWQ_Q / 4;
-    int32_t upper = 3 * MLWQ_Q / 4;
-    for (int i = 0; i < MLWQ_N / 8; i++) {
-        const int16_t *coeffs = &p->coeffs[8 * i];
-        uint8_t bits = 0;
-        for (int j = 0; j < 8; j++) {
-            int bit = (coeffs[j] > lower && coeffs[j] < upper) ? 1 : 0;
-            bits |= (uint8_t)(bit << j);
-        }
-        msg[i] = bits;
+    __m256i lower = _mm256_set1_epi16((int16_t)(MLWQ_Q / 4));
+    __m256i upper = _mm256_set1_epi16((int16_t)(3 * MLWQ_Q / 4));
+
+    for (int i = 0; i < MLWQ_N / 16; i++) {
+        __m256i v = _mm256_load_si256((const __m256i *)&p->coeffs[16 * i]);
+        __m256i gt = _mm256_cmpgt_epi16(v, lower);
+        __m256i lt = _mm256_cmpgt_epi16(upper, v);
+        __m256i in_range = _mm256_and_si256(gt, lt);
+
+        uint32_t mask = (uint32_t)_mm256_movemask_epi8(in_range);
+        mask &= 0x55555555u;
+        mask = (mask | (mask >> 1)) & 0x33333333u;
+        mask = (mask | (mask >> 2)) & 0x0F0F0F0Fu;
+        mask = (mask | (mask >> 4)) & 0x00FF00FFu;
+        mask = (mask | (mask >> 8)) & 0x0000FFFFu;
+
+        msg[2 * i] = (uint8_t)(mask & 0xFFu);
+        msg[2 * i + 1] = (uint8_t)((mask >> 8) & 0xFFu);
     }
 }
 
