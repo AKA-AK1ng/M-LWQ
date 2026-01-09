@@ -95,8 +95,10 @@ void avx_poly_matrix_vec_mul(poly_vec *res, const poly_matrix *A, const poly_vec
 
     for(int i=0; i<MLWQ_K; ++i) {
         poly acc;
-        memset(acc.coeffs, 0, sizeof(int16_t)*MLWQ_N);
-        for(int j=0; j<MLWQ_K; ++j) {
+        poly a_ntt = A->row[i].vec[0];
+        avx_ntt(a_ntt.coeffs);
+        avx_basemul(acc.coeffs, a_ntt.coeffs, s_ntt.vec[0].coeffs);
+        for(int j=1; j<MLWQ_K; ++j) {
             poly a_ntt = A->row[i].vec[j];
             poly prod;
             avx_ntt(a_ntt.coeffs);
@@ -117,9 +119,9 @@ void avx_poly_matrix_vec_mul(poly_vec *res, const poly_matrix *A, const poly_vec
 void avx_poly_matrix_vec_mul_ntt(poly_vec *res, const poly_matrix *A_ntt, const poly_vec *s_ntt) {
     for(int i=0; i<MLWQ_K; ++i) {
         poly acc;
-        memset(acc.coeffs, 0, sizeof(int16_t)*MLWQ_N);
-        for(int j=0; j<MLWQ_K; ++j) {
-            poly prod;
+        poly prod;
+        avx_basemul(acc.coeffs, A_ntt->row[i].vec[0].coeffs, s_ntt->vec[0].coeffs);
+        for(int j=1; j<MLWQ_K; ++j) {
             avx_basemul(prod.coeffs, A_ntt->row[i].vec[j].coeffs, s_ntt->vec[j].coeffs);
             avx_poly_add_inplace(&acc, &prod);
         }
@@ -154,9 +156,9 @@ void avx_poly_vec_transpose_mul(poly *res, const poly_vec *a_t, const poly_vec *
     }
 
     poly acc;
-    memset(acc.coeffs, 0, sizeof(int16_t)*MLWQ_N);
-    for(int i=0; i<MLWQ_K; ++i) {
-        poly prod;
+    poly prod;
+    avx_basemul(acc.coeffs, a_ntt.vec[0].coeffs, b_ntt.vec[0].coeffs);
+    for(int i=1; i<MLWQ_K; ++i) {
         avx_basemul(prod.coeffs, a_ntt.vec[i].coeffs, b_ntt.vec[i].coeffs);
         avx_poly_add_inplace(&acc, &prod);
     }
@@ -172,9 +174,9 @@ void avx_poly_vec_transpose_mul(poly *res, const poly_vec *a_t, const poly_vec *
 
 void avx_poly_vec_transpose_mul_ntt(poly *res, const poly_vec *a_ntt, const poly_vec *b_ntt) {
     poly acc;
-    memset(acc.coeffs, 0, sizeof(int16_t)*MLWQ_N);
-    for(int i=0; i<MLWQ_K; ++i) {
-        poly prod;
+    poly prod;
+    avx_basemul(acc.coeffs, a_ntt->vec[0].coeffs, b_ntt->vec[0].coeffs);
+    for(int i=1; i<MLWQ_K; ++i) {
         avx_basemul(prod.coeffs, a_ntt->vec[i].coeffs, b_ntt->vec[i].coeffs);
         avx_poly_add_inplace(&acc, &prod);
     }
