@@ -83,6 +83,9 @@ void print_sep() { printf("-----------------------------------------------------
 // Kyber-style Microbench (median/average)
 // -------------------------------------------------------------------------
 #define MICROBENCH_ROUNDS 1000
+// ref_poly_compress_u assumes 10-bit packing (4 coeffs -> 5 bytes).
+#define MICROBENCH_POLY_U_BYTES (5 * (MLWQ_N / 4))
+#define MICROBENCH_POLYVEC_U_BYTES (MLWQ_K * MICROBENCH_POLY_U_BYTES)
 static int cmp_u64(const void *a, const void *b) {
     const uint64_t va = *(const uint64_t *)a;
     const uint64_t vb = *(const uint64_t *)b;
@@ -113,7 +116,7 @@ static void run_microbench_avx2(void) {
     uint8_t seed[32] = {0};
     uint8_t msg[32] = {0};
     uint8_t ss[32] = {0};
-    uint8_t comp_u[MLWQ_POLYVECCOMPRESSEDBYTES] = {0};
+    uint8_t comp_u[MICROBENCH_POLYVEC_U_BYTES] = {0};
     uint8_t comp_v[MLWQ_POLYCOMPRESSEDBYTES] = {0};
     mlwq_pk pk;
     mlwq_sk sk;
@@ -200,7 +203,7 @@ static void run_microbench_avx2(void) {
     for (int i = 0; i < MICROBENCH_ROUNDS; i++) {
         t[i] = start_cycles();
         for (int j = 0; j < MLWQ_K; j++) {
-            ref_poly_compress_u(comp_u + j * MLWQ_POLY_U_BYTES, &v0.vec[j]);
+            ref_poly_compress_u(comp_u + j * MICROBENCH_POLY_U_BYTES, &v0.vec[j]);
         }
         t[i] = stop_cycles() - t[i];
     }
@@ -209,7 +212,7 @@ static void run_microbench_avx2(void) {
     for (int i = 0; i < MICROBENCH_ROUNDS; i++) {
         t[i] = start_cycles();
         for (int j = 0; j < MLWQ_K; j++) {
-            ref_poly_decompress_u(&v0.vec[j], comp_u + j * MLWQ_POLY_U_BYTES);
+            ref_poly_decompress_u(&v0.vec[j], comp_u + j * MICROBENCH_POLY_U_BYTES);
         }
         t[i] = stop_cycles() - t[i];
     }
