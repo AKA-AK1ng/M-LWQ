@@ -155,11 +155,31 @@ void avx_poly_matrix_vec_mul_ntt(poly_vec *res, const poly_matrix *A_ntt, const 
 
 void avx_polyvec_basemul_acc(poly *res, const poly_vec *a, const poly_vec *b) {
     poly prod;
+#if MLWQ_K == 2
+    avx_basemul(res->coeffs, a->vec[0].coeffs, b->vec[0].coeffs);
+    avx_basemul(prod.coeffs, a->vec[1].coeffs, b->vec[1].coeffs);
+    avx_poly_add_inplace(res, &prod);
+#elif MLWQ_K == 3
+    avx_basemul(res->coeffs, a->vec[0].coeffs, b->vec[0].coeffs);
+    avx_basemul(prod.coeffs, a->vec[1].coeffs, b->vec[1].coeffs);
+    avx_poly_add_inplace(res, &prod);
+    avx_basemul(prod.coeffs, a->vec[2].coeffs, b->vec[2].coeffs);
+    avx_poly_add_inplace(res, &prod);
+#elif MLWQ_K == 4
+    avx_basemul(res->coeffs, a->vec[0].coeffs, b->vec[0].coeffs);
+    avx_basemul(prod.coeffs, a->vec[1].coeffs, b->vec[1].coeffs);
+    avx_poly_add_inplace(res, &prod);
+    avx_basemul(prod.coeffs, a->vec[2].coeffs, b->vec[2].coeffs);
+    avx_poly_add_inplace(res, &prod);
+    avx_basemul(prod.coeffs, a->vec[3].coeffs, b->vec[3].coeffs);
+    avx_poly_add_inplace(res, &prod);
+#else
     avx_basemul(res->coeffs, a->vec[0].coeffs, b->vec[0].coeffs);
     for(int i=1; i<MLWQ_K; ++i) {
         avx_basemul(prod.coeffs, a->vec[i].coeffs, b->vec[i].coeffs);
         avx_poly_add_inplace(res, &prod);
     }
+#endif
 }
 
 void avx_poly_vec_transpose_mul(poly *res, const poly_vec *a_t, const poly_vec *b) {
