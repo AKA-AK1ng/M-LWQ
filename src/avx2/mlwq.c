@@ -149,6 +149,12 @@ void avx_mlwq_keygen(mlwq_pk *pk, mlwq_sk *sk, const uint8_t *seed_A, const uint
     // 1. 生成矩阵 A (SHAKE128)
     poly_matrix A;
     avx_xof_expand_matrix(&A, seed_A);
+    poly_matrix A_ntt = A;
+    for (int i = 0; i < MLWQ_K; ++i) {
+        for (int j = 0; j < MLWQ_K; ++j) {
+            avx_ntt(A_ntt.row[i].vec[j].coeffs);
+        }
+    }
     
     // 2. 并行采样私钥 s (SHAKE256x4 + AVX CBD3，与 MLWQ_ETA1 = 3 对齐)
     // 使用私有噪声种子，避免与公开 seed_d 绑定
@@ -160,9 +166,13 @@ void avx_mlwq_keygen(mlwq_pk *pk, mlwq_sk *sk, const uint8_t *seed_A, const uint
     poly_vec d_pk;
     avx_xof_expand_poly_vec(&d_pk, seed_d, MLWQ_Q / P_PK);
     
-    // 4. 计算 As + d
+    // 4. 计算 As + d (复用 NTT 域矩阵，避免重复变换)
     poly_vec As;
-    avx_poly_matrix_vec_mul(&As, &A, &sk->s);
+    poly_vec s_ntt = sk->s;
+    for (int i = 0; i < MLWQ_K; ++i) {
+        avx_ntt(s_ntt.vec[i].coeffs);
+    }
+    avx_poly_matrix_vec_mul_ntt(&As, &A_ntt, &s_ntt);
     
     memcpy(pk->seed_A, seed_A, 32);
     memcpy(pk->seed_d, seed_d, 32);
@@ -175,8 +185,26 @@ void avx_mlwq_keygen(mlwq_pk *pk, mlwq_sk *sk, const uint8_t *seed_A, const uint
 // PKE Encrypt
 // -------------------------------------------------------------------------
 void avx_mlwq_encrypt(mlwq_ciphertext *ct, const mlwq_pk *pk, const uint8_t *msg, const uint8_t *seed_ct) {
-    poly_matrix A;
-    avx_xof_expand_matrix(&A, pk->seed_A);
+    poly_matrix A_ntt;
+    static poly_matrix cached_A_ntt;
+    static uint8_t cached_seed_A[32];
+    static int cached_A_valid = 0;
+
+    if (cached_A_valid && memcmp(cached_seed_A, pk->seed_A, 32) == 0) {
+        A_ntt = cached_A_ntt;
+    } else {
+        poly_matrix A;
+        avx_xof_expand_matrix(&A, pk->seed_A);
+        A_ntt = A;
+        for (int i = 0; i < MLWQ_K; ++i) {
+            for (int j = 0; j < MLWQ_K; ++j) {
+                avx_ntt(A_ntt.row[i].vec[j].coeffs);
+            }
+        }
+        cached_A_ntt = A_ntt;
+        memcpy(cached_seed_A, pk->seed_A, 32);
+        cached_A_valid = 1;
+    }
     
     // 1. 并行采样噪声 r (SHAKE256x4 + AVX CBD3)
     poly_vec r;
@@ -187,13 +215,6 @@ void avx_mlwq_encrypt(mlwq_ciphertext *ct, const mlwq_pk *pk, const uint8_t *msg
         avx_ntt(r_ntt.vec[i].coeffs);
     }
 
-    poly_matrix A_ntt = A;
-    for(int i=0; i<MLWQ_K; ++i) {
-        for(int j=0; j<MLWQ_K; ++j) {
-            avx_ntt(A_ntt.row[i].vec[j].coeffs);
-        }
-    }
-    
     // 2. 生成 d_u (SHAKE128, XOF)
     poly_vec d_u;
     poly d_v;
