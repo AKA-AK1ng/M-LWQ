@@ -108,8 +108,10 @@ static void run_microbench_avx2(void) {
     uint64_t t[MICROBENCH_ROUNDS];
     uint8_t seed[32] = {0};
     uint8_t msg[32] = {0};
+    uint8_t ss[32] = {0};
     mlwq_pk pk;
     mlwq_sk sk;
+    mlwq_kem_sk kem_sk;
     mlwq_ciphertext ct;
     poly_matrix A;
     poly p;
@@ -190,6 +192,27 @@ static void run_microbench_avx2(void) {
         t[i] = stop_cycles() - t[i];
     }
     print_microbench("indcpa_dec:", t, MICROBENCH_ROUNDS);
+
+    for (int i = 0; i < MICROBENCH_ROUNDS; i++) {
+        t[i] = start_cycles();
+        avx_mlwq_kem_keygen(&pk, &kem_sk);
+        t[i] = stop_cycles() - t[i];
+    }
+    print_microbench("kem_keypair:", t, MICROBENCH_ROUNDS);
+
+    for (int i = 0; i < MICROBENCH_ROUNDS; i++) {
+        t[i] = start_cycles();
+        avx_mlwq_kem_encaps(&ct, ss, &pk);
+        t[i] = stop_cycles() - t[i];
+    }
+    print_microbench("kem_encaps:", t, MICROBENCH_ROUNDS);
+
+    for (int i = 0; i < MICROBENCH_ROUNDS; i++) {
+        t[i] = start_cycles();
+        avx_mlwq_kem_decaps(ss, &kem_sk, &ct);
+        t[i] = stop_cycles() - t[i];
+    }
+    print_microbench("kem_decaps:", t, MICROBENCH_ROUNDS);
 
     printf("\n");
 }
