@@ -149,6 +149,18 @@ void avx_mlwq_encrypt(mlwq_ciphertext *ct, const mlwq_pk *pk, const uint8_t *msg
         // [Change] 使用 AVX2 优化的 CBD3
         avx_cbd3_simd(&r.vec[i], out[i]);
     }
+
+    poly_vec r_ntt = r;
+    for(int i=0; i<MLWQ_K; ++i) {
+        avx_ntt(r_ntt.vec[i].coeffs);
+    }
+
+    poly_matrix A_ntt = A;
+    for(int i=0; i<MLWQ_K; ++i) {
+        for(int j=0; j<MLWQ_K; ++j) {
+            avx_ntt(A_ntt.row[i].vec[j].coeffs);
+        }
+    }
     
     // 2. 生成 d_u (SHAKE128, XOF)
     poly_vec d_u;
@@ -171,17 +183,22 @@ void avx_mlwq_encrypt(mlwq_ciphertext *ct, const mlwq_pk *pk, const uint8_t *msg
     }
 
     // 后续计算...
-    poly_matrix At;
-    for(int i=0; i<MLWQ_K; ++i) for(int j=0; j<MLWQ_K; ++j) At.row[i].vec[j] = A.row[j].vec[i];
+    poly_matrix At_ntt;
+    for(int i=0; i<MLWQ_K; ++i) for(int j=0; j<MLWQ_K; ++j) At_ntt.row[i].vec[j] = A_ntt.row[j].vec[i];
     
     poly_vec Atr;
-    avx_poly_matrix_vec_mul(&Atr, &At, &r);
+    avx_poly_matrix_vec_mul_ntt(&Atr, &At_ntt, &r_ntt);
     
     poly_vec b_deq;
     for(int i=0; i<MLWQ_K; ++i) avx_poly_dequantize(&b_deq.vec[i], &pk->b_q.vec[i], P_PK);
     
+    poly_vec b_deq_ntt = b_deq;
+    for(int i=0; i<MLWQ_K; ++i) {
+        avx_ntt(b_deq_ntt.vec[i].coeffs);
+    }
+    
     poly v_val;
-    avx_poly_vec_transpose_mul(&v_val, &b_deq, &r);
+    avx_poly_vec_transpose_mul_ntt(&v_val, &b_deq_ntt, &r_ntt);
     
     poly m_poly;
     avx_poly_msg_encode(&m_poly, msg);
