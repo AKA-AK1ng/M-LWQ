@@ -19,6 +19,7 @@ extern void ref_poly_matrix_vec_mul(poly_vec *res, const poly_matrix *A, const p
 extern void ref_poly_quantize(poly *res, const poly *v, const poly *d, int32_t P);
 extern void ref_poly_dequantize(poly *res, const poly *b, int32_t P);
 extern void ref_poly_msg_decode(uint8_t *msg, const poly *p);
+extern void ref_poly_msg_encode(poly *res, const uint8_t *msg);
 extern void ref_mlwq_keygen(mlwq_pk *pk, mlwq_sk *sk, const uint8_t *seed_A, const uint8_t *seed_d);
 extern void ref_mlwq_encrypt(mlwq_ciphertext *ct, const mlwq_pk *pk, const uint8_t *msg, const uint8_t *seed_ct);
 extern void ref_mlwq_kem_keygen(mlwq_pk *pk, mlwq_kem_sk *sk);
@@ -48,16 +49,27 @@ extern void avx_mlwq_decrypt(uint8_t *msg, const mlwq_sk *sk, const mlwq_ciphert
 #define ROUNDS 1000
 
 typedef struct {
-    uint64_t gen_matrix;
-    uint64_t sample;
-    uint64_t gen_dither;
-    uint64_t arith;
-    uint64_t quantize;
-    uint64_t dequantize;
-    uint64_t decode;
-    
-    uint64_t arith_u;
-    uint64_t arith_v;
+    uint64_t keygen_gen_matrix;
+    uint64_t keygen_sample;
+    uint64_t keygen_gen_dither;
+    uint64_t keygen_arith;
+    uint64_t keygen_quantize;
+
+    uint64_t enc_gen_matrix;
+    uint64_t enc_sample;
+    uint64_t enc_gen_dither_u;
+    uint64_t enc_gen_dither_v;
+    uint64_t enc_b_dequant;
+    uint64_t enc_msg_encode;
+    uint64_t enc_arith_u;
+    uint64_t enc_arith_v;
+    uint64_t enc_quant_u;
+    uint64_t enc_quant_v;
+
+    uint64_t dec_dequant_u;
+    uint64_t dec_dequant_v;
+    uint64_t dec_arith;
+    uint64_t dec_decode;
 
     uint64_t pke_keygen;
     uint64_t pke_encrypt;
@@ -343,58 +355,95 @@ void measure_pke_keygen_ref() {
     poly_matrix A; poly_vec s, d_pk, As, b_q;
 
     t1 = start_cycles(); ref_xof_expand_matrix(&A, seed_A); t2 = stop_cycles();
-    dt_mat = t2 - t1; stats_ref.gen_matrix += dt_mat;
+    dt_mat = t2 - t1; stats_ref.keygen_gen_matrix += dt_mat;
 
     dt_samp = measure_cbd_scalar();
-    stats_ref.sample += dt_samp;
+    stats_ref.keygen_sample += dt_samp;
 
     t1 = start_cycles(); ref_xof_expand_poly_vec(&d_pk, seed_d, MLWQ_Q / P_PK); t2 = stop_cycles();
-    dt_dith = t2 - t1; stats_ref.gen_dither += dt_dith;
+    dt_dith = t2 - t1; stats_ref.keygen_gen_dither += dt_dith;
 
     t1 = start_cycles(); ref_poly_matrix_vec_mul(&As, &A, &s); t2 = stop_cycles();
-    dt_arith = t2 - t1; stats_ref.arith += dt_arith;
+    dt_arith = t2 - t1; stats_ref.keygen_arith += dt_arith;
 
     t1 = start_cycles(); for(int i=0; i<MLWQ_K; ++i) ref_poly_quantize(&b_q.vec[i], &As.vec[i], &d_pk.vec[i], P_PK); t2 = stop_cycles();
-    dt_quant = t2 - t1; stats_ref.quantize += dt_quant;
+    dt_quant = t2 - t1; stats_ref.keygen_quantize += dt_quant;
 
     stats_ref.pke_keygen += (dt_mat + dt_samp + dt_dith + dt_arith + dt_quant);
 }
 
 void measure_pke_encrypt_ref() {
     uint64_t t1, t2;
-    uint64_t dt_mat, dt_samp, dt_dith, dt_au, dt_av, dt_quant;
+    uint64_t dt_mat, dt_samp, dt_dith_u, dt_dith_v, dt_b_dq, dt_msg, dt_au, dt_av, dt_quant_u, dt_quant_v;
     uint8_t seed_ct[32]; random_bytes(seed_ct, 32);
+    uint8_t msg[32];
     poly_matrix A; poly_vec r, d_u, Atr, u;
+    poly_vec b_q, b_deq;
+    poly d_v, v_val, v_final, m_poly;
     
     t1 = start_cycles(); ref_xof_expand_matrix(&A, seed_ct); t2 = stop_cycles();
-    dt_mat = t2 - t1; stats_ref.gen_matrix += dt_mat; 
+    dt_mat = t2 - t1; stats_ref.enc_gen_matrix += dt_mat; 
 
     dt_samp = measure_cbd_scalar();
-    stats_ref.sample += dt_samp;
+    stats_ref.enc_sample += dt_samp;
 
     t1 = start_cycles(); ref_xof_expand_poly_vec(&d_u, seed_ct, MLWQ_Q / P_U); t2 = stop_cycles();
-    dt_dith = t2 - t1; stats_ref.gen_dither += dt_dith;
+    dt_dith_u = t2 - t1; stats_ref.enc_gen_dither_u += dt_dith_u;
+
+    t1 = start_cycles();
+    uint8_t d_seed[33];
+    memcpy(d_seed, seed_ct, 32);
+    d_seed[32] = MLWQ_K + 1;
+    uint8_t buf_v[MLWQ_N * 2];
+    shake128(buf_v, sizeof(buf_v), d_seed, 33);
+    uint16_t mod_v = (uint16_t)(MLWQ_Q / P_V);
+    for (int k = 0; k < MLWQ_N; ++k) {
+        uint16_t val = (uint16_t)buf_v[2 * k] | ((uint16_t)buf_v[2 * k + 1] << 8);
+        d_v.coeffs[k] = (int16_t)(val % mod_v);
+    }
+    t2 = stop_cycles();
+    dt_dith_v = t2 - t1; stats_ref.enc_gen_dither_v += dt_dith_v;
+
+    random_bytes((uint8_t *)&b_q, sizeof(b_q));
+    t1 = start_cycles();
+    for (int i = 0; i < MLWQ_K; ++i) {
+        ref_poly_dequantize(&b_deq.vec[i], &b_q.vec[i], P_PK);
+    }
+    t2 = stop_cycles();
+    dt_b_dq = t2 - t1; stats_ref.enc_b_dequant += dt_b_dq;
 
     t1 = start_cycles(); 
     poly_matrix At; for(int i=0;i<MLWQ_K;i++) for(int j=0;j<MLWQ_K;j++) At.row[i].vec[j] = A.row[j].vec[i];
     ref_poly_matrix_vec_mul(&Atr, &At, &r); 
     t2 = stop_cycles();
-    dt_au = t2 - t1; stats_ref.arith_u += dt_au;
+    dt_au = t2 - t1; stats_ref.enc_arith_u += dt_au;
 
     t1 = start_cycles(); 
-    poly v_val; ref_poly_vec_transpose_mul(&v_val, &r, &r);
+    ref_poly_vec_transpose_mul(&v_val, &r, &r);
     t2 = stop_cycles();
-    dt_av = t2 - t1; stats_ref.arith_v += dt_av;
+    dt_av = t2 - t1; stats_ref.enc_arith_v += dt_av;
 
-    t1 = start_cycles(); for(int i=0; i<MLWQ_K; ++i) ref_poly_quantize(&u.vec[i], &Atr.vec[i], &d_u.vec[i], P_U); t2 = stop_cycles();
-    dt_quant = t2 - t1; stats_ref.quantize += dt_quant;
+    random_bytes(msg, sizeof(msg));
+    t1 = start_cycles(); ref_poly_msg_encode(&m_poly, msg); t2 = stop_cycles();
+    dt_msg = t2 - t1; stats_ref.enc_msg_encode += dt_msg;
 
-    stats_ref.pke_encrypt += (dt_mat + dt_samp + dt_dith + dt_au + dt_av + dt_quant);
+    t1 = start_cycles();
+    for(int i=0; i<MLWQ_K; ++i) ref_poly_quantize(&u.vec[i], &Atr.vec[i], &d_u.vec[i], P_U);
+    t2 = stop_cycles();
+    dt_quant_u = t2 - t1; stats_ref.enc_quant_u += dt_quant_u;
+
+    t1 = start_cycles();
+    for (int i = 0; i < MLWQ_N; ++i) v_final.coeffs[i] = v_val.coeffs[i] + m_poly.coeffs[i];
+    ref_poly_quantize(&v_final, &v_final, &d_v, P_V);
+    t2 = stop_cycles();
+    dt_quant_v = t2 - t1; stats_ref.enc_quant_v += dt_quant_v;
+
+    stats_ref.pke_encrypt += (dt_mat + dt_samp + dt_dith_u + dt_dith_v + dt_b_dq + dt_msg + dt_au + dt_av + dt_quant_u + dt_quant_v);
 }
 
 void measure_pke_decrypt_ref() {
     uint64_t t1, t2;
-    uint64_t dt_dq, dt_arith, dt_dec;
+    uint64_t dt_dq_u, dt_dq_v, dt_arith, dt_dec;
     mlwq_pk pk; mlwq_sk sk; mlwq_ciphertext ct; uint8_t msg[32];
     uint8_t seed_A[32], seed_d[32], seed_ct[32];
     poly_vec u_deq; poly diff;
@@ -406,19 +455,23 @@ void measure_pke_decrypt_ref() {
     ref_mlwq_keygen(&pk, &sk, seed_A, seed_d);
     ref_mlwq_encrypt(&ct, &pk, msg, seed_ct);
 
-    t1 = start_cycles(); 
+    t1 = start_cycles();
     for(int i=0; i<MLWQ_K; i++) ref_poly_dequantize(&u_deq.vec[i], &ct.u.vec[i], P_U);
+    t2 = stop_cycles();
+    dt_dq_u = t2 - t1; stats_ref.dec_dequant_u += dt_dq_u;
+
+    t1 = start_cycles();
     ref_poly_dequantize(&diff, &ct.v, P_V);
     t2 = stop_cycles();
-    dt_dq = t2 - t1; stats_ref.dequantize += dt_dq;
+    dt_dq_v = t2 - t1; stats_ref.dec_dequant_v += dt_dq_v;
 
     t1 = start_cycles(); ref_poly_vec_transpose_mul(&diff, &sk.s, &u_deq); t2 = stop_cycles();
-    dt_arith = t2 - t1; stats_ref.arith += dt_arith; 
+    dt_arith = t2 - t1; stats_ref.dec_arith += dt_arith; 
 
     t1 = start_cycles(); ref_poly_msg_decode(msg, &diff); t2 = stop_cycles();
-    dt_dec = t2 - t1; stats_ref.decode += dt_dec;
+    dt_dec = t2 - t1; stats_ref.dec_decode += dt_dec;
 
-    stats_ref.pke_decrypt += (dt_dq + dt_arith + dt_dec);
+    stats_ref.pke_decrypt += (dt_dq_u + dt_dq_v + dt_arith + dt_dec);
 }
 
 void measure_pke_keygen_avx() {
@@ -431,61 +484,101 @@ void measure_pke_keygen_avx() {
     random_bytes(seed_d, 32);
 
     t1 = start_cycles(); avx_xof_expand_matrix(&A, seed_A); t2 = stop_cycles();
-    dt_mat = t2 - t1; stats_avx.gen_matrix += dt_mat;
+    dt_mat = t2 - t1; stats_avx.keygen_gen_matrix += dt_mat;
 
     dt_samp = measure_cbd_scalar(); 
-    stats_avx.sample += dt_samp;
+    stats_avx.keygen_sample += dt_samp;
 
     t1 = start_cycles(); avx_xof_expand_poly_vec(&d_pk, seed_d, MLWQ_Q / P_PK); t2 = stop_cycles();
-    dt_dith = t2 - t1; stats_avx.gen_dither += dt_dith;
+    dt_dith = t2 - t1; stats_avx.keygen_gen_dither += dt_dith;
 
     t1 = start_cycles(); avx_poly_matrix_vec_mul(&As, &A, &s); t2 = stop_cycles();
-    dt_arith = t2 - t1; stats_avx.arith += dt_arith;
+    dt_arith = t2 - t1; stats_avx.keygen_arith += dt_arith;
 
     t1 = start_cycles(); for(int i=0; i<MLWQ_K; ++i) avx_poly_quantize(&b_q.vec[i], &As.vec[i], &d_pk.vec[i], P_PK); t2 = stop_cycles();
-    dt_quant = t2 - t1; stats_avx.quantize += dt_quant;
+    dt_quant = t2 - t1; stats_avx.keygen_quantize += dt_quant;
 
     stats_avx.pke_keygen += (dt_mat + dt_samp + dt_dith + dt_arith + dt_quant);
 }
 
 void measure_pke_encrypt_avx() {
     uint64_t t1, t2;
-    uint64_t dt_mat, dt_samp, dt_dith, dt_au, dt_av, dt_quant;
+    uint64_t dt_mat, dt_samp, dt_dith_u, dt_dith_v, dt_b_dq, dt_msg, dt_au, dt_av, dt_quant_u, dt_quant_v;
     uint8_t seed_ct[32];
+    uint8_t msg[32];
     poly_matrix A; poly_vec r, d_u, Atr, u;
+    poly_vec b_q, b_deq;
+    poly d_v, v_val, v_final, m_poly;
     
     random_bytes(seed_ct, 32);
 
-    avx_xof_expand_matrix(&A, seed_ct); 
     t1 = start_cycles(); avx_xof_expand_matrix(&A, seed_ct); t2 = stop_cycles();
-    dt_mat = t2 - t1; stats_avx.gen_matrix += dt_mat;
+    dt_mat = t2 - t1; stats_avx.enc_gen_matrix += dt_mat;
 
     dt_samp = measure_cbd_scalar(); 
-    stats_avx.sample += dt_samp;
+    stats_avx.enc_sample += dt_samp;
 
     t1 = start_cycles(); avx_xof_expand_poly_vec(&d_u, seed_ct, MLWQ_Q / P_U); t2 = stop_cycles();
-    dt_dith = t2 - t1; stats_avx.gen_dither += dt_dith;
+    dt_dith_u = t2 - t1; stats_avx.enc_gen_dither_u += dt_dith_u;
+
+    t1 = start_cycles();
+    uint8_t d_seed[33];
+    memcpy(d_seed, seed_ct, 32);
+    d_seed[32] = MLWQ_K + 1;
+    uint8_t buf_v[MLWQ_N * 2];
+    shake128(buf_v, sizeof(buf_v), d_seed, 33);
+    uint16_t mod_v = (uint16_t)(MLWQ_Q / P_V);
+    uint32_t recip_v = (uint32_t)(((uint64_t)1 << 32) / mod_v);
+    for (int k = 0; k < MLWQ_N; ++k) {
+        uint16_t val = (uint16_t)buf_v[2 * k] | ((uint16_t)buf_v[2 * k + 1] << 8);
+        uint32_t q = (uint32_t)(((uint64_t)val * recip_v) >> 32);
+        uint32_t r = val - q * mod_v;
+        if (r >= mod_v) r -= mod_v;
+        d_v.coeffs[k] = (int16_t)r;
+    }
+    t2 = stop_cycles();
+    dt_dith_v = t2 - t1; stats_avx.enc_gen_dither_v += dt_dith_v;
+
+    random_bytes((uint8_t *)&b_q, sizeof(b_q));
+    t1 = start_cycles();
+    for (int i = 0; i < MLWQ_K; ++i) {
+        avx_poly_dequantize(&b_deq.vec[i], &b_q.vec[i], P_PK);
+    }
+    t2 = stop_cycles();
+    dt_b_dq = t2 - t1; stats_avx.enc_b_dequant += dt_b_dq;
 
     t1 = start_cycles(); 
     poly_matrix At; for(int i=0;i<MLWQ_K;i++) for(int j=0;j<MLWQ_K;j++) At.row[i].vec[j] = A.row[j].vec[i];
     avx_poly_matrix_vec_mul(&Atr, &At, &r); 
     t2 = stop_cycles();
-    dt_au = t2 - t1; stats_avx.arith_u += dt_au;
+    dt_au = t2 - t1; stats_avx.enc_arith_u += dt_au;
 
     t1 = start_cycles(); 
-    poly v_val; avx_poly_vec_transpose_mul(&v_val, &r, &r);
+    avx_poly_vec_transpose_mul(&v_val, &r, &r);
     t2 = stop_cycles();
-    dt_av = t2 - t1; stats_avx.arith_v += dt_av;
+    dt_av = t2 - t1; stats_avx.enc_arith_v += dt_av;
 
-    t1 = start_cycles(); for(int i=0; i<MLWQ_K; ++i) avx_poly_quantize(&u.vec[i], &Atr.vec[i], &d_u.vec[i], P_U); t2 = stop_cycles();
-    dt_quant = t2 - t1; stats_avx.quantize += dt_quant;
+    random_bytes(msg, sizeof(msg));
+    t1 = start_cycles(); avx_poly_msg_encode(&m_poly, msg); t2 = stop_cycles();
+    dt_msg = t2 - t1; stats_avx.enc_msg_encode += dt_msg;
 
-    stats_avx.pke_encrypt += (dt_mat + dt_samp + dt_dith + dt_au + dt_av + dt_quant);
+    t1 = start_cycles();
+    for(int i=0; i<MLWQ_K; ++i) avx_poly_quantize(&u.vec[i], &Atr.vec[i], &d_u.vec[i], P_U);
+    t2 = stop_cycles();
+    dt_quant_u = t2 - t1; stats_avx.enc_quant_u += dt_quant_u;
+
+    t1 = start_cycles();
+    avx_poly_add(&v_final, &v_val, &m_poly);
+    avx_poly_quantize(&v_final, &v_final, &d_v, P_V);
+    t2 = stop_cycles();
+    dt_quant_v = t2 - t1; stats_avx.enc_quant_v += dt_quant_v;
+
+    stats_avx.pke_encrypt += (dt_mat + dt_samp + dt_dith_u + dt_dith_v + dt_b_dq + dt_msg + dt_au + dt_av + dt_quant_u + dt_quant_v);
 }
 
 void measure_pke_decrypt_avx() {
     uint64_t t1, t2;
-    uint64_t dt_dq, dt_arith, dt_dec;
+    uint64_t dt_dq_u, dt_dq_v, dt_arith, dt_dec;
     mlwq_pk pk; mlwq_sk sk; mlwq_ciphertext ct; uint8_t msg[32];
     uint8_t seed_A[32], seed_d[32], seed_ct[32];
     poly_vec u_deq;
@@ -498,19 +591,23 @@ void measure_pke_decrypt_avx() {
     avx_mlwq_keygen(&pk, &sk, seed_A, seed_d);
     avx_mlwq_encrypt(&ct, &pk, msg, seed_ct);
 
-    t1 = start_cycles(); 
+    t1 = start_cycles();
     for(int i=0; i<MLWQ_K; i++) avx_poly_dequantize(&u_deq.vec[i], &ct.u.vec[i], P_U);
+    t2 = stop_cycles();
+    dt_dq_u = t2 - t1; stats_avx.dec_dequant_u += dt_dq_u;
+
+    t1 = start_cycles();
     avx_poly_dequantize(&diff, &ct.v, P_V);
     t2 = stop_cycles();
-    dt_dq = t2 - t1; stats_avx.dequantize += dt_dq;
+    dt_dq_v = t2 - t1; stats_avx.dec_dequant_v += dt_dq_v;
 
     t1 = start_cycles(); avx_poly_vec_transpose_mul(&diff, &sk.s, &u_deq); t2 = stop_cycles();
-    dt_arith = t2 - t1; stats_avx.arith += dt_arith;
+    dt_arith = t2 - t1; stats_avx.dec_arith += dt_arith;
 
     t1 = start_cycles(); avx_poly_msg_decode(msg, &diff); t2 = stop_cycles();
-    dt_dec = t2 - t1; stats_avx.decode += dt_dec;
+    dt_dec = t2 - t1; stats_avx.dec_decode += dt_dec;
 
-    stats_avx.pke_decrypt += (dt_dq + dt_arith + dt_dec);
+    stats_avx.pke_decrypt += (dt_dq_u + dt_dq_v + dt_arith + dt_dec);
 }
 
 int main() {
@@ -575,11 +672,11 @@ int main() {
     printf("%-20s %-15s %-15s %-15s %-10s\n", "Sub-Component", "Scalar (cyc)", "AVX2 (cyc)", "Speedup", "Scalar %");
     
     uint64_t s_kg_total = avg(stats_ref.pke_keygen); 
-    printf("%-20s %-15lu %-15lu %-.2fx            %.1f%%\n", "GenMatrix (A)", avg(stats_ref.gen_matrix)/2, avg(stats_avx.gen_matrix)/2, (double)avg(stats_ref.gen_matrix)/avg(stats_avx.gen_matrix), 100.0*(avg(stats_ref.gen_matrix)/2)/s_kg_total);
-    printf("%-20s %-15lu %-15lu %-.2fx            %.1f%%\n", "Sample (s)", avg(stats_ref.sample)/2, avg(stats_avx.sample)/2, (double)avg(stats_ref.sample)/avg(stats_avx.sample), 100.0*(avg(stats_ref.sample)/2)/s_kg_total);
-    printf("%-20s %-15lu %-15lu %-.2fx            %.1f%%\n", "GenDither", avg(stats_ref.gen_dither)/2, avg(stats_avx.gen_dither)/2, (double)avg(stats_ref.gen_dither)/avg(stats_avx.gen_dither), 100.0*(avg(stats_ref.gen_dither)/2)/s_kg_total);
-    printf("%-20s %-15lu %-15lu %-.2fx            %.1f%%\n", "Arith (A*s)", avg(stats_ref.arith)/2, avg(stats_avx.arith)/2, (double)avg(stats_ref.arith)/avg(stats_avx.arith), 100.0*(avg(stats_ref.arith)/2)/s_kg_total);
-    printf("%-20s %-15lu %-15lu %-.2fx            %.1f%%\n", "Quantize", avg(stats_ref.quantize)/2, avg(stats_avx.quantize)/2, (double)avg(stats_ref.quantize)/avg(stats_avx.quantize), 100.0*(avg(stats_ref.quantize)/2)/s_kg_total);
+    printf("%-20s %-15lu %-15lu %-.2fx            %.1f%%\n", "GenMatrix (A)", avg(stats_ref.keygen_gen_matrix), avg(stats_avx.keygen_gen_matrix), (double)avg(stats_ref.keygen_gen_matrix)/avg(stats_avx.keygen_gen_matrix), 100.0*avg(stats_ref.keygen_gen_matrix)/s_kg_total);
+    printf("%-20s %-15lu %-15lu %-.2fx            %.1f%%\n", "Sample (s)", avg(stats_ref.keygen_sample), avg(stats_avx.keygen_sample), (double)avg(stats_ref.keygen_sample)/avg(stats_avx.keygen_sample), 100.0*avg(stats_ref.keygen_sample)/s_kg_total);
+    printf("%-20s %-15lu %-15lu %-.2fx            %.1f%%\n", "GenDither", avg(stats_ref.keygen_gen_dither), avg(stats_avx.keygen_gen_dither), (double)avg(stats_ref.keygen_gen_dither)/avg(stats_avx.keygen_gen_dither), 100.0*avg(stats_ref.keygen_gen_dither)/s_kg_total);
+    printf("%-20s %-15lu %-15lu %-.2fx            %.1f%%\n", "Arith (A*s)", avg(stats_ref.keygen_arith), avg(stats_avx.keygen_arith), (double)avg(stats_ref.keygen_arith)/avg(stats_avx.keygen_arith), 100.0*avg(stats_ref.keygen_arith)/s_kg_total);
+    printf("%-20s %-15lu %-15lu %-.2fx            %.1f%%\n", "Quantize", avg(stats_ref.keygen_quantize), avg(stats_avx.keygen_quantize), (double)avg(stats_ref.keygen_quantize)/avg(stats_avx.keygen_quantize), 100.0*avg(stats_ref.keygen_quantize)/s_kg_total);
 
     printf("\n");
     print_sep();
@@ -587,11 +684,19 @@ int main() {
     print_sep();
     printf("%-20s %-15s %-15s %-15s\n", "Sub-Component", "Scalar (cyc)", "AVX2 (cyc)", "Speedup");
 
-    uint64_t au_ref = avg(stats_ref.arith_u); uint64_t au_avx = avg(stats_avx.arith_u);
-    uint64_t av_ref = avg(stats_ref.arith_v); uint64_t av_avx = avg(stats_avx.arith_v);
+    uint64_t au_ref = avg(stats_ref.enc_arith_u); uint64_t au_avx = avg(stats_avx.enc_arith_u);
+    uint64_t av_ref = avg(stats_ref.enc_arith_v); uint64_t av_avx = avg(stats_avx.enc_arith_v);
     
+    printf("%-20s %-15lu %-15lu %-.2fx\n", "GenMatrix (A)", avg(stats_ref.enc_gen_matrix), avg(stats_avx.enc_gen_matrix), (double)avg(stats_ref.enc_gen_matrix)/avg(stats_avx.enc_gen_matrix));
+    printf("%-20s %-15lu %-15lu %-.2fx\n", "Sample (r)", avg(stats_ref.enc_sample), avg(stats_avx.enc_sample), (double)avg(stats_ref.enc_sample)/avg(stats_avx.enc_sample));
+    printf("%-20s %-15lu %-15lu %-.2fx\n", "GenDither (u)", avg(stats_ref.enc_gen_dither_u), avg(stats_avx.enc_gen_dither_u), (double)avg(stats_ref.enc_gen_dither_u)/avg(stats_avx.enc_gen_dither_u));
+    printf("%-20s %-15lu %-15lu %-.2fx\n", "GenDither (v)", avg(stats_ref.enc_gen_dither_v), avg(stats_avx.enc_gen_dither_v), (double)avg(stats_ref.enc_gen_dither_v)/avg(stats_avx.enc_gen_dither_v));
+    printf("%-20s %-15lu %-15lu %-.2fx\n", "DeQuantize (b)", avg(stats_ref.enc_b_dequant), avg(stats_avx.enc_b_dequant), (double)avg(stats_ref.enc_b_dequant)/avg(stats_avx.enc_b_dequant));
+    printf("%-20s %-15lu %-15lu %-.2fx\n", "Msg Encode", avg(stats_ref.enc_msg_encode), avg(stats_avx.enc_msg_encode), (double)avg(stats_ref.enc_msg_encode)/avg(stats_avx.enc_msg_encode));
     printf("%-20s %-15lu %-15lu %-.2fx\n", "Arith (u)", au_ref, au_avx, (double)au_ref/au_avx);
     printf("%-20s %-15lu %-15lu %-.2fx\n", "Arith (v)", av_ref, av_avx, (double)av_ref/av_avx);
+    printf("%-20s %-15lu %-15lu %-.2fx\n", "Quantize (u)", avg(stats_ref.enc_quant_u), avg(stats_avx.enc_quant_u), (double)avg(stats_ref.enc_quant_u)/avg(stats_avx.enc_quant_u));
+    printf("%-20s %-15lu %-15lu %-.2fx\n", "Quantize (v)", avg(stats_ref.enc_quant_v), avg(stats_avx.enc_quant_v), (double)avg(stats_ref.enc_quant_v)/avg(stats_avx.enc_quant_v));
 
     printf("\n");
     print_sep();
@@ -599,11 +704,13 @@ int main() {
     print_sep();
     printf("%-20s %-15s %-15s %-15s\n", "Sub-Component", "Scalar (cyc)", "AVX2 (cyc)", "Speedup");
     
-    uint64_t dq_ref = avg(stats_ref.dequantize); uint64_t dq_avx = avg(stats_avx.dequantize);
-    uint64_t dc_ref = avg(stats_ref.decode); uint64_t dc_avx = avg(stats_avx.decode);
-    uint64_t ar_dec_ref = avg(stats_ref.arith)/2; uint64_t ar_dec_avx = avg(stats_avx.arith)/2;
+    uint64_t dq_u_ref = avg(stats_ref.dec_dequant_u); uint64_t dq_u_avx = avg(stats_avx.dec_dequant_u);
+    uint64_t dq_v_ref = avg(stats_ref.dec_dequant_v); uint64_t dq_v_avx = avg(stats_avx.dec_dequant_v);
+    uint64_t dc_ref = avg(stats_ref.dec_decode); uint64_t dc_avx = avg(stats_avx.dec_decode);
+    uint64_t ar_dec_ref = avg(stats_ref.dec_arith); uint64_t ar_dec_avx = avg(stats_avx.dec_arith);
 
-    printf("%-20s %-15lu %-15lu %-.2fx\n", "DeQuantize", dq_ref, dq_avx, (double)dq_ref/dq_avx);
+    printf("%-20s %-15lu %-15lu %-.2fx\n", "DeQuantize (u)", dq_u_ref, dq_u_avx, (double)dq_u_ref/dq_u_avx);
+    printf("%-20s %-15lu %-15lu %-.2fx\n", "DeQuantize (v)", dq_v_ref, dq_v_avx, (double)dq_v_ref/dq_v_avx);
     printf("%-20s %-15lu %-15lu %-.2fx\n", "Arith (v-su)", ar_dec_ref, ar_dec_avx, (double)ar_dec_ref/ar_dec_avx);
     printf("%-20s %-15lu %-15lu %-.2fx\n", "Decode", dc_ref, dc_avx, (double)dc_ref/dc_avx);
 
@@ -612,8 +719,8 @@ int main() {
     printf("%-10s %-10s %-15s %-15s %-20s %-20s\n", "Component", "Mode", "Quantize", "Sample", "Alg. Efficiency", "AVX Improvement");
     print_sep();
     
-    uint64_t q_ref = avg(stats_ref.quantize)/2; uint64_t s_ref = avg(stats_ref.sample)/2;
-    uint64_t q_avx = avg(stats_avx.quantize)/2; uint64_t s_avx = avg(stats_avx.sample)/2;
+    uint64_t q_ref = avg(stats_ref.keygen_quantize); uint64_t s_ref = avg(stats_ref.keygen_sample);
+    uint64_t q_avx = avg(stats_avx.keygen_quantize); uint64_t s_avx = avg(stats_avx.keygen_sample);
     printf("%-10s %-10s %-15lu %-15lu %-.2fx                 %-20s\n", "PK / u", "Scalar", q_ref, s_ref, (double)s_ref/q_ref, "1.00x (Ref)");
     printf("%-10s %-10s %-15lu %-15lu %-.2fx                 %-.2fx\n", "PK / u", "AVX2", q_avx, s_avx, (double)s_avx/q_avx, (double)q_ref/q_avx);
 
