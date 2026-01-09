@@ -113,14 +113,18 @@ static void avx_poly_getnoise_eta1_4x(poly *r0,
 }
 
 void avx_poly_getnoise_eta1(poly *r, const uint8_t seed[32], uint8_t nonce) {
-    ALIGNED_UINT8(MLWQ_ETA1 * MLWQ_N / 4 + 32) buf;
-    uint8_t extseed[33];
-
-    memcpy(extseed, seed, 32);
-    extseed[32] = nonce;
-
-    shake256(buf.coeffs, MLWQ_ETA1 * MLWQ_N / 4, extseed, 33);
-    avx_cbd3_simd(r, buf.coeffs);
+    poly dummy0;
+    poly dummy1;
+    poly dummy2;
+    avx_poly_getnoise_eta1_4x(r,
+                              &dummy0,
+                              &dummy1,
+                              &dummy2,
+                              seed,
+                              nonce,
+                              (uint8_t)(nonce + 1),
+                              (uint8_t)(nonce + 2),
+                              (uint8_t)(nonce + 3));
 }
 
 static void avx_polyvec_getnoise_eta1(poly_vec *r, const uint8_t seed[32], uint8_t nonce_base) {
