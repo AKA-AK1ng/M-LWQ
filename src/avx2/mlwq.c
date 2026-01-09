@@ -123,6 +123,25 @@ void avx_poly_getnoise_eta1(poly *r, const uint8_t seed[32], uint8_t nonce) {
     avx_cbd3_simd(r, buf.coeffs);
 }
 
+static void avx_polyvec_getnoise_eta1(poly_vec *r, const uint8_t seed[32], uint8_t nonce_base) {
+    int i = 0;
+    while (i + 3 < MLWQ_K) {
+        avx_poly_getnoise_eta1_4x(&r->vec[i + 0],
+                                  &r->vec[i + 1],
+                                  &r->vec[i + 2],
+                                  &r->vec[i + 3],
+                                  seed,
+                                  (uint8_t)(nonce_base + i + 0),
+                                  (uint8_t)(nonce_base + i + 1),
+                                  (uint8_t)(nonce_base + i + 2),
+                                  (uint8_t)(nonce_base + i + 3));
+        i += 4;
+    }
+    for (; i < MLWQ_K; i++) {
+        avx_poly_getnoise_eta1(&r->vec[i], seed, (uint8_t)(nonce_base + i));
+    }
+}
+
 // -------------------------------------------------------------------------
 // PKE KeyGen
 // -------------------------------------------------------------------------
@@ -135,13 +154,7 @@ void avx_mlwq_keygen(mlwq_pk *pk, mlwq_sk *sk, const uint8_t *seed_A, const uint
     // 使用私有噪声种子，避免与公开 seed_d 绑定
     uint8_t seed_s[32];
     random_bytes(seed_s, 32);
-    poly s2, s3;
-    avx_poly_getnoise_eta1_4x(&sk->s.vec[0],
-                              &sk->s.vec[1],
-                              &s2,
-                              &s3,
-                              seed_s,
-                              0, 1, 2, 3);
+    avx_polyvec_getnoise_eta1(&sk->s, seed_s, 0);
 
     // 3. 生成 d_pk (SHAKE128)
     poly_vec d_pk;
@@ -167,14 +180,7 @@ void avx_mlwq_encrypt(mlwq_ciphertext *ct, const mlwq_pk *pk, const uint8_t *msg
     
     // 1. 并行采样噪声 r (SHAKE256x4 + AVX CBD3)
     poly_vec r;
-    
-    poly r2, r3;
-    avx_poly_getnoise_eta1_4x(&r.vec[0],
-                              &r.vec[1],
-                              &r2,
-                              &r3,
-                              seed_ct,
-                              0, 1, 2, 3);
+    avx_polyvec_getnoise_eta1(&r, seed_ct, 0);
 
     poly_vec r_ntt = r;
     for(int i=0; i<MLWQ_K; ++i) {
