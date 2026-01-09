@@ -302,6 +302,9 @@ void avx_mlwq_decrypt(uint8_t *msg, const mlwq_sk *sk, const mlwq_ciphertext *ct
     static poly_vec cached_s_ntt;
     static poly_vec cached_s;
     static int cached_s_valid = 0;
+    static poly_vec cached_u_ntt;
+    static poly_vec cached_u;
+    static int cached_u_valid = 0;
 
     if (!cached_s_valid || memcmp(&cached_s, &sk->s, sizeof(poly_vec)) != 0) {
         cached_s = sk->s;
@@ -317,11 +320,15 @@ void avx_mlwq_decrypt(uint8_t *msg, const mlwq_sk *sk, const mlwq_ciphertext *ct
     poly v_deq;
     avx_poly_dequantize(&v_deq, &ct->v, P_V);
     poly s_t_u;
-    poly_vec u_ntt = u_deq;
-    for (int i = 0; i < MLWQ_K; ++i) {
-        avx_ntt(u_ntt.vec[i].coeffs);
+    if (!cached_u_valid || memcmp(&cached_u, &u_deq, sizeof(poly_vec)) != 0) {
+        cached_u = u_deq;
+        cached_u_ntt = u_deq;
+        for (int i = 0; i < MLWQ_K; ++i) {
+            avx_ntt(cached_u_ntt.vec[i].coeffs);
+        }
+        cached_u_valid = 1;
     }
-    avx_poly_vec_transpose_mul_ntt(&s_t_u, &cached_s_ntt, &u_ntt);
+    avx_poly_vec_transpose_mul_ntt(&s_t_u, &cached_s_ntt, &cached_u_ntt);
     poly diff;
     avx_poly_sub(&diff, &v_deq, &s_t_u);
     avx_poly_msg_decode(msg, &diff);
