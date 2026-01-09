@@ -24,6 +24,13 @@ static inline uint16_t fast_mod_u16_precomp(uint16_t val, uint16_t mod, uint32_t
     return (uint16_t)r;
 }
 
+static inline uint16_t reduce_u16(uint16_t val, uint16_t mod, uint32_t recip) {
+    if ((mod & (mod - 1)) == 0) {
+        return (uint16_t)(val & (mod - 1));
+    }
+    return fast_mod_u16_precomp(val, mod, recip);
+}
+
 static unsigned int rej_uniform_avx2(int16_t *r,
                                      const uint8_t *buf,
                                      unsigned int buflen,
@@ -187,7 +194,7 @@ void avx_xof_expand_poly_vec(poly_vec *v, const uint8_t *seed, int32_t modulus) 
             uint8_t *buf = out[k];
             for(int j=0; j<MLWQ_N; j++) {
                 uint16_t val = (uint16_t)buf[2*j] | ((uint16_t)buf[2*j+1]<<8);
-                v->vec[current_idx].coeffs[j] = fast_mod_u16_precomp(val, mod, recip);
+                v->vec[current_idx].coeffs[j] = reduce_u16(val, mod, recip);
             }
         }
         
@@ -211,6 +218,6 @@ void avx_xof_expand_poly(poly *v, const uint8_t *seed, int32_t modulus) {
     uint8_t *buf = out;
     for (int j = 0; j < MLWQ_N; j++) {
         uint16_t val = (uint16_t)buf[2 * j] | ((uint16_t)buf[2 * j + 1] << 8);
-        v->coeffs[j] = fast_mod_u16_precomp(val, mod, recip);
+        v->coeffs[j] = reduce_u16(val, mod, recip);
     }
 }
