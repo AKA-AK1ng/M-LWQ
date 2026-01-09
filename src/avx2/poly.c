@@ -75,8 +75,24 @@ void avx_poly_quantize(poly *res, const poly *v, const poly *d, int32_t P) {
 // [FIX] AVX2 极速反量化: v = (b * Q + Q/2) / P
 // 近似为: v = (b * floor(Q*2^16/P)) >> 16
 void avx_poly_dequantize(poly *res, const poly *b, int32_t P) {
-    // v = (b * Q + Q/2) / P, P is power-of-two (512 or 1024)
-    int shift = (P == 512) ? 9 : 10;
+    // v = (b * Q + Q/2) / P, optimized for power-of-two P (32/512/1024)
+    int shift = -1;
+    if (P == 32) {
+        shift = 5;
+    } else if (P == 512) {
+        shift = 9;
+    } else if (P == 1024) {
+        shift = 10;
+    }
+
+    if (shift < 0) {
+        for (int i = 0; i < MLWQ_N; ++i) {
+            int32_t v = (int32_t)b->coeffs[i] * MLWQ_Q + (MLWQ_Q / 2);
+            res->coeffs[i] = v / P;
+        }
+        return;
+    }
+
     __m256i q = _mm256_set1_epi32(MLWQ_Q);
     __m256i half_q = _mm256_set1_epi32(MLWQ_Q / 2);
 
@@ -93,6 +109,7 @@ void avx_poly_dequantize(poly *res, const poly *b, int32_t P) {
         v_hi = _mm256_srli_epi32(v_hi, shift);
 
         __m256i packed = _mm256_packus_epi32(v_lo, v_hi);
+        packed = _mm256_permute4x64_epi64(packed, 0xD8);
         _mm256_store_si256((__m256i *)&res->coeffs[i], packed);
     }
 }
