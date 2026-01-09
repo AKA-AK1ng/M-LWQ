@@ -38,6 +38,12 @@ extern void avx_mlwq_kem_keygen(mlwq_pk *pk, mlwq_kem_sk *sk);
 extern void avx_mlwq_kem_encaps(mlwq_ciphertext *ct, uint8_t *ss, const mlwq_pk *pk);
 extern int  avx_mlwq_kem_decaps(uint8_t *ss, const mlwq_kem_sk *sk, const mlwq_ciphertext *ct);
 extern void avx_poly_vec_transpose_mul(poly *res, const poly_vec *a_t, const poly_vec *b);
+extern void avx_poly_getnoise_eta1(poly *r, const uint8_t seed[32], uint8_t nonce);
+extern void avx_ntt(int16_t *r);
+extern void avx_invntt(int16_t *r);
+extern void avx_polyvec_basemul_acc(poly *res, const poly_vec *a, const poly_vec *b);
+extern void avx_poly_msg_encode(poly *res, const uint8_t *msg);
+extern void avx_mlwq_decrypt(uint8_t *msg, const mlwq_sk *sk, const mlwq_ciphertext *ct);
 
 #define ROUNDS 1000
 
@@ -68,6 +74,125 @@ static bench_stats_t stats_avx = {0};
 static uint64_t avg(uint64_t total) { return total / ROUNDS; }
 
 void print_sep() { printf("----------------------------------------------------------------------------------------------\n"); }
+
+// -------------------------------------------------------------------------
+// Kyber-style Microbench (median/average)
+// -------------------------------------------------------------------------
+#define MICROBENCH_ROUNDS 1000
+static int cmp_u64(const void *a, const void *b) {
+    const uint64_t va = *(const uint64_t *)a;
+    const uint64_t vb = *(const uint64_t *)b;
+    return (va > vb) - (va < vb);
+}
+
+static uint64_t median_u64(uint64_t *vals, size_t n) {
+    qsort(vals, n, sizeof(uint64_t), cmp_u64);
+    if (n == 0) return 0;
+    if (n & 1) return vals[n / 2];
+    return (vals[n / 2 - 1] + vals[n / 2]) / 2;
+}
+
+static uint64_t average_u64(const uint64_t *vals, size_t n) {
+    uint64_t sum = 0;
+    for (size_t i = 0; i < n; i++) sum += vals[i];
+    return sum / n;
+}
+
+static void print_microbench(const char *label, uint64_t *vals, size_t n) {
+    printf("%s\n", label);
+    printf("median: %llu cycles/ticks\n", (unsigned long long)median_u64(vals, n));
+    printf("average: %llu cycles/ticks\n\n", (unsigned long long)average_u64(vals, n));
+}
+
+static void run_microbench_avx2(void) {
+    uint64_t t[MICROBENCH_ROUNDS];
+    uint8_t seed[32] = {0};
+    uint8_t msg[32] = {0};
+    mlwq_pk pk;
+    mlwq_sk sk;
+    mlwq_ciphertext ct;
+    poly_matrix A;
+    poly p;
+    poly_vec v0, v1;
+
+    printf(">>> Kyber-style Microbench (AVX2)\n\n");
+
+    for (int i = 0; i < MICROBENCH_ROUNDS; i++) {
+        t[i] = start_cycles();
+        avx_xof_expand_matrix(&A, seed);
+        t[i] = stop_cycles() - t[i];
+    }
+    print_microbench("gen_a:", t, MICROBENCH_ROUNDS);
+
+    for (int i = 0; i < MICROBENCH_ROUNDS; i++) {
+        t[i] = start_cycles();
+        avx_poly_getnoise_eta1(&p, seed, 0);
+        t[i] = stop_cycles() - t[i];
+    }
+    print_microbench("poly_getnoise_eta1:", t, MICROBENCH_ROUNDS);
+
+    for (int i = 0; i < MICROBENCH_ROUNDS; i++) {
+        t[i] = start_cycles();
+        avx_ntt(p.coeffs);
+        t[i] = stop_cycles() - t[i];
+    }
+    print_microbench("NTT:", t, MICROBENCH_ROUNDS);
+
+    for (int i = 0; i < MICROBENCH_ROUNDS; i++) {
+        t[i] = start_cycles();
+        avx_invntt(p.coeffs);
+        t[i] = stop_cycles() - t[i];
+    }
+    print_microbench("INVNTT:", t, MICROBENCH_ROUNDS);
+
+    for (int i = 0; i < MLWQ_K; i++) {
+        avx_ntt(v0.vec[i].coeffs);
+        avx_ntt(v1.vec[i].coeffs);
+    }
+    for (int i = 0; i < MICROBENCH_ROUNDS; i++) {
+        t[i] = start_cycles();
+        avx_polyvec_basemul_acc(&p, &v0, &v1);
+        t[i] = stop_cycles() - t[i];
+    }
+    print_microbench("polyvec_basemul_acc_montgomery:", t, MICROBENCH_ROUNDS);
+
+    for (int i = 0; i < MICROBENCH_ROUNDS; i++) {
+        t[i] = start_cycles();
+        avx_poly_msg_decode(msg, &p);
+        t[i] = stop_cycles() - t[i];
+    }
+    print_microbench("poly_tomsg:", t, MICROBENCH_ROUNDS);
+
+    for (int i = 0; i < MICROBENCH_ROUNDS; i++) {
+        t[i] = start_cycles();
+        avx_poly_msg_encode(&p, msg);
+        t[i] = stop_cycles() - t[i];
+    }
+    print_microbench("poly_frommsg:", t, MICROBENCH_ROUNDS);
+
+    for (int i = 0; i < MICROBENCH_ROUNDS; i++) {
+        t[i] = start_cycles();
+        avx_mlwq_keygen(&pk, &sk, seed, seed);
+        t[i] = stop_cycles() - t[i];
+    }
+    print_microbench("indcpa_keypair:", t, MICROBENCH_ROUNDS);
+
+    for (int i = 0; i < MICROBENCH_ROUNDS; i++) {
+        t[i] = start_cycles();
+        avx_mlwq_encrypt(&ct, &pk, msg, seed);
+        t[i] = stop_cycles() - t[i];
+    }
+    print_microbench("indcpa_enc:", t, MICROBENCH_ROUNDS);
+
+    for (int i = 0; i < MICROBENCH_ROUNDS; i++) {
+        t[i] = start_cycles();
+        avx_mlwq_decrypt(msg, &sk, &ct);
+        t[i] = stop_cycles() - t[i];
+    }
+    print_microbench("indcpa_dec:", t, MICROBENCH_ROUNDS);
+
+    printf("\n");
+}
 
 // -------------------------------------------------------------------------
 // [Fix] Correct Size Display using Macros from params.h
@@ -444,6 +569,7 @@ int main() {
     printf("%-20s %-15lu %-15lu %-.2fx\n", "KEM Decaps", avg(stats_ref.kem_decaps), avg(stats_avx.kem_decaps), (double)avg(stats_ref.kem_decaps)/avg(stats_avx.kem_decaps));
     
     print_sep();
+    run_microbench_avx2();
     printf("\n[FINAL] All checks passed! Implementation is correct.\n");
 
     return 0;

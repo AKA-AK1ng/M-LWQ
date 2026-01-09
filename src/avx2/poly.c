@@ -134,6 +134,17 @@ void avx_poly_matrix_vec_mul_ntt(poly_vec *res, const poly_matrix *A_ntt, const 
     }
 }
 
+void avx_polyvec_basemul_acc(poly *res, const poly_vec *a, const poly_vec *b) {
+    poly acc;
+    memset(acc.coeffs, 0, sizeof(int16_t)*MLWQ_N);
+    for(int i=0; i<MLWQ_K; ++i) {
+        poly prod;
+        avx_basemul(prod.coeffs, a->vec[i].coeffs, b->vec[i].coeffs);
+        avx_poly_add_inplace(&acc, &prod);
+    }
+    *res = acc;
+}
+
 void avx_poly_vec_transpose_mul(poly *res, const poly_vec *a_t, const poly_vec *b) {
     poly_vec a_ntt = *a_t;
     poly_vec b_ntt = *b;

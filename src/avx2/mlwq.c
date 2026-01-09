@@ -112,6 +112,17 @@ static void avx_poly_getnoise_eta1_4x(poly *r0,
     #undef NOISE_NBLOCKS
 }
 
+void avx_poly_getnoise_eta1(poly *r, const uint8_t seed[32], uint8_t nonce) {
+    ALIGNED_UINT8(MLWQ_ETA1 * MLWQ_N / 4 + 32) buf;
+    uint8_t extseed[33];
+
+    memcpy(extseed, seed, 32);
+    extseed[32] = nonce;
+
+    shake256(buf.coeffs, MLWQ_ETA1 * MLWQ_N / 4, extseed, 33);
+    avx_cbd3_simd(r, buf.coeffs);
+}
+
 // -------------------------------------------------------------------------
 // PKE KeyGen
 // -------------------------------------------------------------------------

@@ -12,6 +12,7 @@ void avx_poly_vec_transpose_mul(poly *res, const poly_vec *a_t, const poly_vec *
 void avx_poly_matrix_vec_mul(poly_vec *res, const poly_matrix *A, const poly_vec *s);
 void avx_poly_vec_transpose_mul_ntt(poly *res, const poly_vec *a_ntt, const poly_vec *b_ntt);
 void avx_poly_matrix_vec_mul_ntt(poly_vec *res, const poly_matrix *A_ntt, const poly_vec *s_ntt);
+void avx_polyvec_basemul_acc(poly *res, const poly_vec *a, const poly_vec *b);
 
 void avx_poly_msg_encode(poly *res, const uint8_t *msg);
 void avx_poly_msg_decode(uint8_t *msg, const poly *p);
