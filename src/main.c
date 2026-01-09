@@ -19,10 +19,6 @@ extern void ref_poly_matrix_vec_mul(poly_vec *res, const poly_matrix *A, const p
 extern void ref_poly_quantize(poly *res, const poly *v, const poly *d, int32_t P);
 extern void ref_poly_dequantize(poly *res, const poly *b, int32_t P);
 extern void ref_poly_msg_decode(uint8_t *msg, const poly *p);
-extern void ref_poly_compress_u(uint8_t *r, const poly *a);
-extern void ref_poly_decompress_u(poly *r, const uint8_t *a);
-extern void ref_poly_compress_v(uint8_t *r, const poly *a);
-extern void ref_poly_decompress_v(poly *r, const uint8_t *a);
 extern void ref_mlwq_keygen(mlwq_pk *pk, mlwq_sk *sk, const uint8_t *seed_A, const uint8_t *seed_d);
 extern void ref_mlwq_encrypt(mlwq_ciphertext *ct, const mlwq_pk *pk, const uint8_t *msg, const uint8_t *seed_ct);
 extern void ref_mlwq_kem_keygen(mlwq_pk *pk, mlwq_kem_sk *sk);
@@ -83,9 +79,6 @@ void print_sep() { printf("-----------------------------------------------------
 // Kyber-style Microbench (median/average)
 // -------------------------------------------------------------------------
 #define MICROBENCH_ROUNDS 1000
-// ref_poly_compress_u assumes 10-bit packing (4 coeffs -> 5 bytes).
-#define MICROBENCH_POLY_U_BYTES (5 * (MLWQ_N / 4))
-#define MICROBENCH_POLYVEC_U_BYTES (MLWQ_K * MICROBENCH_POLY_U_BYTES)
 static int cmp_u64(const void *a, const void *b) {
     const uint64_t va = *(const uint64_t *)a;
     const uint64_t vb = *(const uint64_t *)b;
@@ -116,15 +109,16 @@ static void run_microbench_avx2(void) {
     uint8_t seed[32] = {0};
     uint8_t msg[32] = {0};
     uint8_t ss[32] = {0};
-    uint8_t comp_u[MICROBENCH_POLYVEC_U_BYTES] = {0};
-    uint8_t comp_v[MLWQ_POLYCOMPRESSEDBYTES] = {0};
     mlwq_pk pk;
     mlwq_sk sk;
     mlwq_kem_sk kem_sk;
     mlwq_ciphertext ct;
     poly_matrix A;
     poly p;
+    poly q_poly;
+    poly dither_zero;
     poly_vec v0, v1;
+    poly_vec q_vec;
 
     printf(">>> Kyber-style Microbench (AVX2)\n\n");
 
@@ -186,37 +180,39 @@ static void run_microbench_avx2(void) {
     }
     print_microbench("poly_frommsg:", t, MICROBENCH_ROUNDS);
 
-    for (int i = 0; i < MICROBENCH_ROUNDS; i++) {
-        t[i] = start_cycles();
-        ref_poly_compress_v(comp_v, &p);
-        t[i] = stop_cycles() - t[i];
-    }
-    print_microbench("poly_compress:", t, MICROBENCH_ROUNDS);
+    memset(dither_zero.coeffs, 0, sizeof(dither_zero.coeffs));
 
     for (int i = 0; i < MICROBENCH_ROUNDS; i++) {
         t[i] = start_cycles();
-        ref_poly_decompress_v(&p, comp_v);
+        avx_poly_quantize(&q_poly, &p, &dither_zero, P_V);
         t[i] = stop_cycles() - t[i];
     }
-    print_microbench("poly_decompress:", t, MICROBENCH_ROUNDS);
+    print_microbench("poly_quantize:", t, MICROBENCH_ROUNDS);
 
     for (int i = 0; i < MICROBENCH_ROUNDS; i++) {
         t[i] = start_cycles();
-        for (int j = 0; j < MLWQ_K; j++) {
-            ref_poly_compress_u(comp_u + j * MICROBENCH_POLY_U_BYTES, &v0.vec[j]);
-        }
+        avx_poly_dequantize(&p, &q_poly, P_V);
         t[i] = stop_cycles() - t[i];
     }
-    print_microbench("polyvec_compress:", t, MICROBENCH_ROUNDS);
+    print_microbench("poly_dequantize:", t, MICROBENCH_ROUNDS);
 
     for (int i = 0; i < MICROBENCH_ROUNDS; i++) {
         t[i] = start_cycles();
         for (int j = 0; j < MLWQ_K; j++) {
-            ref_poly_decompress_u(&v0.vec[j], comp_u + j * MICROBENCH_POLY_U_BYTES);
+            avx_poly_quantize(&q_vec.vec[j], &v0.vec[j], &dither_zero, P_U);
         }
         t[i] = stop_cycles() - t[i];
     }
-    print_microbench("polyvec_decompress:", t, MICROBENCH_ROUNDS);
+    print_microbench("polyvec_quantize:", t, MICROBENCH_ROUNDS);
+
+    for (int i = 0; i < MICROBENCH_ROUNDS; i++) {
+        t[i] = start_cycles();
+        for (int j = 0; j < MLWQ_K; j++) {
+            avx_poly_dequantize(&v1.vec[j], &q_vec.vec[j], P_U);
+        }
+        t[i] = stop_cycles() - t[i];
+    }
+    print_microbench("polyvec_dequantize:", t, MICROBENCH_ROUNDS);
 
     for (int i = 0; i < MICROBENCH_ROUNDS; i++) {
         t[i] = start_cycles();
