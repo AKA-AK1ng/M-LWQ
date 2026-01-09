@@ -20,10 +20,10 @@ extern void avx_poly_compress_v(uint8_t *r, const poly *a);
 extern void avx_poly_decompress_v(poly *r, const uint8_t *a);
 
 // =========================================================================
-// AVX2 SIMD 优化的 CBD3
+// AVX2 SIMD 优化的 CBD3（对齐 Kyber 的解包布局）
 // =========================================================================
 
-static void avx_cbd3_simd(poly *r, const uint8_t *buf) {
+static void avx_cbd3(poly * restrict r, const uint8_t buf[3 * MLWQ_N / 4 + 8]) {
     unsigned int i;
     __m256i f0, f1, f2, f3;
     const __m256i mask249 = _mm256_set1_epi32(0x249249);
@@ -74,6 +74,14 @@ static void avx_cbd3_simd(poly *r, const uint8_t *buf) {
     }
 }
 
+static void avx_poly_cbd_eta1(poly *r, const __m256i buf[MLWQ_ETA1 * MLWQ_N / 128 + 1]) {
+#if MLWQ_ETA1 == 3
+    avx_cbd3(r, (const uint8_t *)buf);
+#else
+#error "AVX2 cbd requires MLWQ_ETA1 == 3"
+#endif
+}
+
 // =========================================================================
 // AVX2 4x 噪声采样 (对齐 Kyber 的 4x SHAKE256 + CBD3 流程)
 // =========================================================================
@@ -105,10 +113,10 @@ static void avx_poly_getnoise_eta1_4x(poly *r0,
     shake256x4_absorb_once(&state, buf[0].coeffs, buf[1].coeffs, buf[2].coeffs, buf[3].coeffs, 33);
     shake256x4_squeezeblocks(buf[0].coeffs, buf[1].coeffs, buf[2].coeffs, buf[3].coeffs, NOISE_NBLOCKS, &state);
 
-    avx_cbd3_simd(r0, buf[0].coeffs);
-    avx_cbd3_simd(r1, buf[1].coeffs);
-    avx_cbd3_simd(r2, buf[2].coeffs);
-    avx_cbd3_simd(r3, buf[3].coeffs);
+    avx_poly_cbd_eta1(r0, (const __m256i *)buf[0].coeffs);
+    avx_poly_cbd_eta1(r1, (const __m256i *)buf[1].coeffs);
+    avx_poly_cbd_eta1(r2, (const __m256i *)buf[2].coeffs);
+    avx_poly_cbd_eta1(r3, (const __m256i *)buf[3].coeffs);
     #undef NOISE_NBLOCKS
 }
 
