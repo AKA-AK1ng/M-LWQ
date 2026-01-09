@@ -8,6 +8,7 @@
 void avx_ntt(int16_t *r);
 void avx_invntt(int16_t *r);
 void avx_basemul(int16_t *r, const int16_t *a, const int16_t *b);
+void avx_reduce(int16_t *r);
 void avx_poly_mul_ntt(poly *res, const poly *a, const poly *b);
 
 // AVX2 基础运算供其他模块使用

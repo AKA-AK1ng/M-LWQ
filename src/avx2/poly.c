@@ -133,13 +133,8 @@ void avx_poly_matrix_vec_mul(poly_vec *res, const poly_matrix *A, const poly_vec
             avx_poly_add_inplace(&acc, &prod);
         }
         avx_invntt(acc.coeffs);
-        for(int k=0; k<MLWQ_N; ++k) {
-            int16_t val = acc.coeffs[k];
-            int32_t t = (int32_t)val;
-            while (t < 0) t += MLWQ_Q;
-            while (t >= MLWQ_Q) t -= MLWQ_Q;
-            res->vec[i].coeffs[k] = (int16_t)t;
-        }
+        avx_reduce(acc.coeffs);
+        res->vec[i] = acc;
     }
 }
 
@@ -153,13 +148,8 @@ void avx_poly_matrix_vec_mul_ntt(poly_vec *res, const poly_matrix *A_ntt, const 
             avx_poly_add_inplace(&acc, &prod);
         }
         avx_invntt(acc.coeffs);
-        for(int k=0; k<MLWQ_N; ++k) {
-            int16_t val = acc.coeffs[k];
-            int32_t t = (int32_t)val;
-            while (t < 0) t += MLWQ_Q;
-            while (t >= MLWQ_Q) t -= MLWQ_Q;
-            res->vec[i].coeffs[k] = (int16_t)t;
-        }
+        avx_reduce(acc.coeffs);
+        res->vec[i] = acc;
     }
 }
 
@@ -188,13 +178,8 @@ void avx_poly_vec_transpose_mul(poly *res, const poly_vec *a_t, const poly_vec *
         avx_poly_add_inplace(&acc, &prod);
     }
     avx_invntt(acc.coeffs);
-    for(int k=0; k<MLWQ_N; ++k) {
-        int16_t val = acc.coeffs[k];
-        int32_t t = (int32_t)val;
-        while (t < 0) t += MLWQ_Q;
-        while (t >= MLWQ_Q) t -= MLWQ_Q;
-        res->coeffs[k] = (int16_t)t;
-    }
+    avx_reduce(acc.coeffs);
+    *res = acc;
 }
 
 void avx_poly_vec_transpose_mul_ntt(poly *res, const poly_vec *a_ntt, const poly_vec *b_ntt) {
@@ -206,13 +191,8 @@ void avx_poly_vec_transpose_mul_ntt(poly *res, const poly_vec *a_ntt, const poly
         avx_poly_add_inplace(&acc, &prod);
     }
     avx_invntt(acc.coeffs);
-    for(int k=0; k<MLWQ_N; ++k) {
-        int16_t val = acc.coeffs[k];
-        int32_t t = (int32_t)val;
-        while (t < 0) t += MLWQ_Q;
-        while (t >= MLWQ_Q) t -= MLWQ_Q;
-        res->coeffs[k] = (int16_t)t;
-    }
+    avx_reduce(acc.coeffs);
+    *res = acc;
 }
 
 void avx_poly_msg_encode(poly *res, const uint8_t *msg) {

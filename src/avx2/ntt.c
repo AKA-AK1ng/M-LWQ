@@ -5,6 +5,7 @@
 extern void mlwq_avx_ntt_avx(__m256i *r, const __m256i *qdata);
 extern void mlwq_avx_invntt_avx(__m256i *r, const __m256i *qdata);
 extern void mlwq_avx_basemul_avx(__m256i *r, const __m256i *a, const __m256i *b, const __m256i *qdata);
+extern void mlwq_avx_reduce_avx(__m256i *r, const __m256i *qdata);
 
 void avx_ntt(int16_t *r) {
     mlwq_avx_ntt_avx((__m256i*)r, qdata.vec);
@@ -16,6 +17,10 @@ void avx_invntt(int16_t *r) {
 
 void avx_basemul(int16_t *r, const int16_t *a, const int16_t *b) {
     mlwq_avx_basemul_avx((__m256i*)r, (const __m256i*)a, (const __m256i*)b, qdata.vec);
+}
+
+void avx_reduce(int16_t *r) {
+    mlwq_avx_reduce_avx((__m256i*)r, qdata.vec);
 }
 
 void avx_poly_mul_ntt(poly *res, const poly *a, const poly *b) {
@@ -47,13 +52,6 @@ void avx_poly_mul_ntt(poly *res, const poly *a, const poly *b) {
     // 5. Inverse NTT
     mlwq_avx_invntt_avx((__m256i*)res->coeffs, qdata.vec);
 
-    // 6. 最终规约 (C层修正)
-    // 这一步依然需要，但现在我们可以直接操作 res->coeffs
-    for(int i=0; i<256; i++) {
-        int16_t val = res->coeffs[i];
-        int32_t t = (int32_t)val;
-        while (t < 0) t += 3329;
-        while (t >= 3329) t -= 3329;
-        res->coeffs[i] = (int16_t)t;
-    }
+    // 6. 最终规约 (AVX2 批量规约)
+    avx_reduce(res->coeffs);
 }
