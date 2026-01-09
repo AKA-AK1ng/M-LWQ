@@ -75,15 +75,25 @@ void avx_poly_quantize(poly *res, const poly *v, const poly *d, int32_t P) {
 // [FIX] AVX2 极速反量化: v = (b * Q + Q/2) / P
 // 近似为: v = (b * floor(Q*2^16/P)) >> 16
 void avx_poly_dequantize(poly *res, const poly *b, int32_t P) {
-    // 这里为了精度，通常还是用 float 或者 wider int
-    // 但为了 AVX2 速度，且 P 通常是 2 的幂，可以直接用移位
-    // M-LWQ 中 P 是 1024 或 512 等
-    // v = (b * Q) / P = b * (Q/P)
-    // 如果 Q/P 是整数（不一定），或者用定点
-    // 简单起见，这里保持标量循环，因为它不是性能热点，且精度要求高
-    for(int i=0; i<MLWQ_N; ++i) {
-        int32_t v = (int32_t)b->coeffs[i] * MLWQ_Q + (MLWQ_Q/2);
-        res->coeffs[i] = v / P;
+    // v = (b * Q + Q/2) / P, P is power-of-two (512 or 1024)
+    int shift = (P == 512) ? 9 : 10;
+    __m256i q = _mm256_set1_epi32(MLWQ_Q);
+    __m256i half_q = _mm256_set1_epi32(MLWQ_Q / 2);
+
+    for (int i = 0; i < MLWQ_N; i += 16) {
+        __m256i v = _mm256_load_si256((__m256i *)&b->coeffs[i]);
+        __m256i v_lo = _mm256_cvtepu16_epi32(_mm256_castsi256_si128(v));
+        __m256i v_hi = _mm256_cvtepu16_epi32(_mm256_extracti128_si256(v, 1));
+
+        v_lo = _mm256_mullo_epi32(v_lo, q);
+        v_hi = _mm256_mullo_epi32(v_hi, q);
+        v_lo = _mm256_add_epi32(v_lo, half_q);
+        v_hi = _mm256_add_epi32(v_hi, half_q);
+        v_lo = _mm256_srli_epi32(v_lo, shift);
+        v_hi = _mm256_srli_epi32(v_hi, shift);
+
+        __m256i packed = _mm256_packus_epi32(v_lo, v_hi);
+        _mm256_store_si256((__m256i *)&res->coeffs[i], packed);
     }
 }
 
