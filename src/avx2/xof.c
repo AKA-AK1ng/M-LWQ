@@ -98,31 +98,37 @@ void avx_xof_expand_matrix(poly_matrix *A, const uint8_t *seed) {
         
         // 4. 解析输出
         unsigned int ctr[4] = {0, 0, 0, 0};
+        int16_t *poly_ptrs[4] = {0};
         for(unsigned int k=0; k<count; k++) {
             unsigned int current = batch_idx + k;
             unsigned int r = current / MLWQ_K;
             unsigned int c = current % MLWQ_K;
-            
-            int16_t *poly_r = A->row[r].vec[c].coeffs;
-            uint8_t *buf = out[k];
-            
-            ctr[k] = rej_uniform_avx(poly_r, buf);
+            poly_ptrs[k] = A->row[r].vec[c].coeffs;
+            ctr[k] = rej_uniform_avx(poly_ptrs[k], out[k]);
         }
 
         for (unsigned int k = count; k < 4; k++) {
             ctr[k] = MLWQ_N;
         }
 
-        while (ctr[0] < MLWQ_N || ctr[1] < MLWQ_N || ctr[2] < MLWQ_N || ctr[3] < MLWQ_N) {
+        while (1) {
+            int pending = 0;
+            for (unsigned int k = 0; k < count; k++) {
+                if (ctr[k] < MLWQ_N) {
+                    pending = 1;
+                    break;
+                }
+            }
+            if (!pending) {
+                break;
+            }
             shake128x4_squeezeblocks(more[0], more[1], more[2], more[3], 1, &state);
 
             for (unsigned int k = 0; k < count; k++) {
-                unsigned int current = batch_idx + k;
-                unsigned int r = current / MLWQ_K;
-                unsigned int c = current % MLWQ_K;
-                int16_t *poly_r = A->row[r].vec[c].coeffs;
                 unsigned int local_pos = 0;
-                ctr[k] = rej_uniform_avx2(poly_r, more[k], SHAKE128_RATE, ctr[k], &local_pos);
+                if (ctr[k] < MLWQ_N) {
+                    ctr[k] = rej_uniform_avx2(poly_ptrs[k], more[k], SHAKE128_RATE, ctr[k], &local_pos);
+                }
             }
         }
         
