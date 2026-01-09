@@ -240,6 +240,20 @@ void avx_poly_msg_encode(poly *res, const uint8_t *msg) {
 }
 
 void avx_poly_msg_decode(uint8_t *msg, const poly *p) {
+    static uint8_t compress_lut[256];
+    static int table_ready = 0;
+    if (!table_ready) {
+        for (int v = 0; v < 256; v++) {
+            uint8_t out = 0;
+            out |= (uint8_t)((v >> 0) & 0x1);
+            out |= (uint8_t)(((v >> 2) & 0x1) << 1);
+            out |= (uint8_t)(((v >> 4) & 0x1) << 2);
+            out |= (uint8_t)(((v >> 6) & 0x1) << 3);
+            compress_lut[v] = out;
+        }
+        table_ready = 1;
+    }
+
     memset(msg, 0, 32);
     __m256i lower = _mm256_set1_epi16((int16_t)(MLWQ_Q / 4));
     __m256i upper = _mm256_set1_epi16((int16_t)(3 * MLWQ_Q / 4));
@@ -251,14 +265,13 @@ void avx_poly_msg_decode(uint8_t *msg, const poly *p) {
         __m256i in_range = _mm256_and_si256(gt, lt);
 
         uint32_t mask = (uint32_t)_mm256_movemask_epi8(in_range);
-        mask &= 0x55555555u;
-        mask = (mask | (mask >> 1)) & 0x33333333u;
-        mask = (mask | (mask >> 2)) & 0x0F0F0F0Fu;
-        mask = (mask | (mask >> 4)) & 0x00FF00FFu;
-        mask = (mask | (mask >> 8)) & 0x0000FFFFu;
+        uint8_t b0 = (uint8_t)(mask & 0xFFu);
+        uint8_t b1 = (uint8_t)((mask >> 8) & 0xFFu);
+        uint8_t b2 = (uint8_t)((mask >> 16) & 0xFFu);
+        uint8_t b3 = (uint8_t)((mask >> 24) & 0xFFu);
 
-        msg[2 * i] = (uint8_t)(mask & 0xFFu);
-        msg[2 * i + 1] = (uint8_t)((mask >> 8) & 0xFFu);
+        msg[2 * i] = (uint8_t)(compress_lut[b0] | (compress_lut[b1] << 4));
+        msg[2 * i + 1] = (uint8_t)(compress_lut[b2] | (compress_lut[b3] << 4));
     }
 }
 
