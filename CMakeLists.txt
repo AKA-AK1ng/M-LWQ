@@ -32,7 +32,7 @@ target_link_libraries(mlwq_ref mlwq_common)
 # 3. AVX2
 # [关键修改 2] 修改 GLOB 模式，增加 .S 文件
 # 这样 CMake 才会把 ntt.S, basemul.S 等汇编文件加入编译列表
-file(GLOB AVX_SRC "src/avx2/*.c" "src/avx2/*.S")
+file(GLOB AVX_SRC CONFIGURE_DEPENDS "src/avx2/*.c" "src/avx2/*.S")
 
 add_library(mlwq_avx2 STATIC ${AVX_SRC})
 target_link_libraries(mlwq_avx2 mlwq_common)
