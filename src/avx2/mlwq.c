@@ -208,10 +208,14 @@ void avx_mlwq_encrypt(mlwq_ciphertext *ct, const mlwq_pk *pk, const uint8_t *msg
     uint8_t buf_v[MLWQ_N*2];
     shake128(buf_v, sizeof(buf_v), d_seed, 33);
     
-    int32_t mod_v = MLWQ_Q / P_V;
+    uint16_t mod_v = (uint16_t)(MLWQ_Q / P_V);
+    uint32_t recip_v = (uint32_t)(((uint64_t)1 << 32) / mod_v);
     for(int k=0; k<MLWQ_N; ++k) {
         uint16_t val = (uint16_t)buf_v[2*k] | ((uint16_t)buf_v[2*k+1]<<8);
-        d_v.coeffs[k] = val % mod_v;
+        uint32_t q = (uint32_t)(((uint64_t)val * recip_v) >> 32);
+        uint32_t r = val - q * mod_v;
+        if (r >= mod_v) r -= mod_v;
+        d_v.coeffs[k] = (int16_t)r;
     }
 
     // 后续计算...
