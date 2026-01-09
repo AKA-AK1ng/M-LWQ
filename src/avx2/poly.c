@@ -189,10 +189,21 @@ void avx_poly_vec_transpose_mul_ntt(poly *res, const poly_vec *a_ntt, const poly
 }
 
 void avx_poly_msg_encode(poly *res, const uint8_t *msg) {
-    int32_t scale = MLWQ_Q / 2;
-    for(int i=0; i<MLWQ_N; ++i) {
-        int bit = (msg[i/8] >> (i%8)) & 1;
-        res->coeffs[i] = bit ? scale : 0;
+    static int16_t table[256][8];
+    static int table_ready = 0;
+    if (!table_ready) {
+        int16_t scale = MLWQ_Q / 2;
+        for (int v = 0; v < 256; v++) {
+            for (int b = 0; b < 8; b++) {
+                table[v][b] = (v & (1 << b)) ? scale : 0;
+            }
+        }
+        table_ready = 1;
+    }
+
+    for (int i = 0; i < MLWQ_N / 8; i++) {
+        const int16_t *src = table[msg[i]];
+        memcpy(&res->coeffs[8 * i], src, sizeof(int16_t) * 8);
     }
 }
 
@@ -200,9 +211,14 @@ void avx_poly_msg_decode(uint8_t *msg, const poly *p) {
     memset(msg, 0, 32);
     int32_t lower = MLWQ_Q / 4;
     int32_t upper = 3 * MLWQ_Q / 4;
-    for(int i=0; i<MLWQ_N; ++i) {
-        int bit = (p->coeffs[i] > lower && p->coeffs[i] < upper) ? 1 : 0;
-        if(bit) msg[i/8] |= (1 << (i%8));
+    for (int i = 0; i < MLWQ_N / 8; i++) {
+        const int16_t *coeffs = &p->coeffs[8 * i];
+        uint8_t bits = 0;
+        for (int j = 0; j < 8; j++) {
+            int bit = (coeffs[j] > lower && coeffs[j] < upper) ? 1 : 0;
+            bits |= (uint8_t)(bit << j);
+        }
+        msg[i] = bits;
     }
 }
 
