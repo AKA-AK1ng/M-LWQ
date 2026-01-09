@@ -136,9 +136,9 @@ void avx_poly_matrix_vec_mul_ntt(poly_vec *res, const poly_matrix *A_ntt, const 
 
 void avx_polyvec_basemul_acc(poly *res, const poly_vec *a, const poly_vec *b) {
     poly acc;
-    memset(acc.coeffs, 0, sizeof(int16_t)*MLWQ_N);
-    for(int i=0; i<MLWQ_K; ++i) {
-        poly prod;
+    poly prod;
+    avx_basemul(acc.coeffs, a->vec[0].coeffs, b->vec[0].coeffs);
+    for(int i=1; i<MLWQ_K; ++i) {
         avx_basemul(prod.coeffs, a->vec[i].coeffs, b->vec[i].coeffs);
         avx_poly_add_inplace(&acc, &prod);
     }
