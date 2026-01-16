@@ -10,6 +10,13 @@
 #include "common/structs.h"
 #include "common/fips202.h"
 
+static void derive_seed_d(uint8_t *seed_d, const uint8_t *seed_a) {
+    uint8_t input[33];
+    memcpy(input, seed_a, 32);
+    input[32] = 0x01;
+    shake128(seed_d, 32, input, sizeof(input));
+}
+
 // -------------------------------------------------------------------------
 // External Functions
 // -------------------------------------------------------------------------
@@ -353,7 +360,7 @@ static uint64_t measure_cbd_scalar() {
 // -------------------------------------------------------------------------
 void measure_pke_keygen_ref() {
     uint64_t t1, t2;
-    uint64_t dt_mat, dt_samp, dt_dith, dt_arith, dt_quant; 
+    uint64_t dt_mat, dt_samp, dt_dith, dt_arith, dt_quant;
     uint8_t seed_A[32], seed_d[32], seed_s[32];
     random_bytes(seed_A, 32); random_bytes(seed_d, 32);
     poly_matrix A; poly_vec s, d_pk, As, b_q;
@@ -370,6 +377,7 @@ void measure_pke_keygen_ref() {
     dt_samp = t2 - t1;
     stats_ref.keygen_sample += dt_samp;
 
+    derive_seed_d(seed_d, seed_A);
     t1 = start_cycles(); ref_xof_expand_poly_vec(&d_pk, seed_d, MLWQ_Q / P_PK); t2 = stop_cycles();
     dt_dith = t2 - t1; stats_ref.keygen_gen_dither += dt_dith;
 
@@ -490,7 +498,7 @@ void measure_pke_keygen_avx() {
     poly_matrix A; poly_vec s, d_pk, As, b_q;
     
     random_bytes(seed_A, 32);
-    random_bytes(seed_d, 32);
+    derive_seed_d(seed_d, seed_A);
 
     t1 = start_cycles(); avx_xof_expand_matrix(&A, seed_A); t2 = stop_cycles();
     dt_mat = t2 - t1; stats_avx.keygen_gen_matrix += dt_mat;
