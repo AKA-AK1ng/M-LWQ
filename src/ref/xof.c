@@ -119,7 +119,7 @@ void ref_xof_expand_poly_vec(poly_vec *v, const uint8_t *seed, int32_t modulus) 
 
   for(i=0; i<MLWQ_K; i++) {
     memcpy(extseed, seed, 32);
-    extseed[32] = i; // Nonce
+    extseed[32] = seed[32] + i; // Nonce base + index
     
     shake128_absorb_once(&state, extseed, 33);
     

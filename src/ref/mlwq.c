@@ -122,11 +122,11 @@ void ref_mlwq_encrypt(mlwq_ciphertext *ct, const mlwq_pk *pk, const uint8_t *msg
     memcpy(d_seed, seed_ct, 32); 
     
     // d_u (Nonce domain separation)
-    d_seed[32] = 10; 
+    d_seed[32] = MLWQ_K;
     ref_xof_expand_poly_vec(&d_u, d_seed, MLWQ_Q / P_U);
     
     // d_v (Single poly expansion)
-    d_seed[32] = 11;
+    d_seed[32] = MLWQ_K + 1;
     ref_xof_expand_poly(&d_v, d_seed, MLWQ_Q / P_V);
 
     poly_matrix At;

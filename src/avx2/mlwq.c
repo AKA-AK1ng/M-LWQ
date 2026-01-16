@@ -192,8 +192,11 @@ void avx_mlwq_keygen(mlwq_pk *pk, mlwq_sk *sk, const uint8_t *seed_A) {
     // 3. 生成 d_pk (SHAKE128)
     poly_vec d_pk;
     uint8_t d_seed[32];
+    uint8_t d_uniform_seed[33];
     derive_seed_d(d_seed, seed_A);
-    avx_xof_expand_poly_vec(&d_pk, d_seed, MLWQ_Q / P_PK);
+    memcpy(d_uniform_seed, d_seed, 32);
+    d_uniform_seed[32] = 0xFF; // Domain separator to avoid collision with s
+    avx_xof_expand_poly_vec(&d_pk, d_uniform_seed, MLWQ_Q / P_PK);
     
     // 4. 计算 As + d (复用 NTT 域矩阵，避免重复变换)
     poly_vec As;
