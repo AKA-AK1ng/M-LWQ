@@ -19,6 +19,7 @@ endif()
 include_directories(src)
 # [建议] 显式包含 avx2 目录，防止汇编找不到 consts.h
 include_directories(src/avx2)
+include_directories(src/avx512)
 
 # 1. Common
 file(GLOB COMMON_SRC "src/common/*.c")
@@ -37,9 +38,17 @@ file(GLOB AVX_SRC CONFIGURE_DEPENDS "src/avx2/*.c" "src/avx2/*.S")
 add_library(mlwq_avx2 STATIC ${AVX_SRC})
 target_link_libraries(mlwq_avx2 mlwq_common)
 
+# 3. AVX512 (8-way SHAKE batching)
+file(GLOB AVX512_SRC CONFIGURE_DEPENDS "src/avx512/*.c")
+add_library(mlwq_avx512 STATIC ${AVX512_SRC})
+target_link_libraries(mlwq_avx512 mlwq_common mlwq_avx2)
+if(NOT MSVC)
+    target_compile_options(mlwq_avx512 PRIVATE -mavx512f -mavx512dq -mavx512vl -mavx512bw)
+endif()
+
 # 4. Main Benchmark
 add_executable(mlwq_bench src/main.c)
-target_link_libraries(mlwq_bench mlwq_ref mlwq_avx2 mlwq_common)
+target_link_libraries(mlwq_bench mlwq_ref mlwq_avx2 mlwq_avx512 mlwq_common)
 
 if(NOT WIN32)
     target_link_libraries(mlwq_bench m)

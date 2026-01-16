@@ -57,6 +57,16 @@ extern void avx_polyvec_basemul_acc(poly *res, const poly_vec *a, const poly_vec
 extern void avx_poly_msg_encode(poly *res, const uint8_t *msg);
 extern void avx_mlwq_decrypt(uint8_t *msg, const mlwq_sk *sk, const mlwq_ciphertext *ct);
 
+extern void avx512_xof_expand_matrix(poly_matrix *A, const uint8_t *seed);
+extern void avx512_xof_expand_poly_vec(poly_vec *v, const uint8_t *seed, int32_t modulus);
+extern void avx512_xof_expand_poly(poly *v, const uint8_t *seed, int32_t modulus);
+extern void avx512_mlwq_keygen(mlwq_pk *pk, mlwq_sk *sk, const uint8_t *seed_A);
+extern void avx512_mlwq_encrypt(mlwq_ciphertext *ct, const mlwq_pk *pk, const uint8_t *msg, const uint8_t *seed_ct);
+extern void avx512_mlwq_decrypt(uint8_t *msg, const mlwq_sk *sk, const mlwq_ciphertext *ct);
+extern void avx512_mlwq_kem_keygen(mlwq_pk *pk, mlwq_kem_sk *sk);
+extern void avx512_mlwq_kem_encaps(mlwq_ciphertext *ct, uint8_t *ss, const mlwq_pk *pk);
+extern int  avx512_mlwq_kem_decaps(uint8_t *ss, const mlwq_kem_sk *sk, const mlwq_ciphertext *ct);
+
 #define ROUNDS 1000
 
 typedef struct {
@@ -93,6 +103,7 @@ typedef struct {
 
 static bench_stats_t stats_ref = {0};
 static bench_stats_t stats_avx = {0};
+static bench_stats_t stats_avx512 = {0};
 
 static uint64_t avg(uint64_t total) { return total / ROUNDS; }
 
@@ -282,6 +293,79 @@ static void run_microbench_avx2(void) {
     printf("\n");
 }
 
+static void run_microbench_avx512(void) {
+    uint64_t t[MICROBENCH_ROUNDS];
+    uint8_t seed[32] = {0};
+    uint8_t msg[32] = {0};
+    uint8_t ss[32] = {0};
+    mlwq_pk pk;
+    mlwq_sk sk;
+    mlwq_kem_sk kem_sk;
+    mlwq_ciphertext ct;
+    poly_matrix A;
+    poly p;
+
+    printf(">>> Kyber-style Microbench (AVX512)\n\n");
+
+    for (int i = 0; i < MICROBENCH_ROUNDS; i++) {
+        t[i] = start_cycles();
+        avx512_xof_expand_matrix(&A, seed);
+        t[i] = stop_cycles() - t[i];
+    }
+    print_microbench("gen_a:", t, MICROBENCH_ROUNDS);
+
+    for (int i = 0; i < MICROBENCH_ROUNDS; i++) {
+        t[i] = start_cycles();
+        avx_poly_getnoise_eta1(&p, seed, 0);
+        t[i] = stop_cycles() - t[i];
+    }
+    print_microbench("poly_getnoise_eta1:", t, MICROBENCH_ROUNDS);
+
+    for (int i = 0; i < MICROBENCH_ROUNDS; i++) {
+        t[i] = start_cycles();
+        avx512_mlwq_keygen(&pk, &sk, seed);
+        t[i] = stop_cycles() - t[i];
+    }
+    print_microbench("indcpa_keypair:", t, MICROBENCH_ROUNDS);
+
+    for (int i = 0; i < MICROBENCH_ROUNDS; i++) {
+        t[i] = start_cycles();
+        avx512_mlwq_encrypt(&ct, &pk, msg, seed);
+        t[i] = stop_cycles() - t[i];
+    }
+    print_microbench("indcpa_enc:", t, MICROBENCH_ROUNDS);
+
+    for (int i = 0; i < MICROBENCH_ROUNDS; i++) {
+        t[i] = start_cycles();
+        avx512_mlwq_decrypt(msg, &sk, &ct);
+        t[i] = stop_cycles() - t[i];
+    }
+    print_microbench("indcpa_dec:", t, MICROBENCH_ROUNDS);
+
+    for (int i = 0; i < MICROBENCH_ROUNDS; i++) {
+        t[i] = start_cycles();
+        avx512_mlwq_kem_keygen(&pk, &kem_sk);
+        t[i] = stop_cycles() - t[i];
+    }
+    print_microbench("kem_keypair:", t, MICROBENCH_ROUNDS);
+
+    for (int i = 0; i < MICROBENCH_ROUNDS; i++) {
+        t[i] = start_cycles();
+        avx512_mlwq_kem_encaps(&ct, ss, &pk);
+        t[i] = stop_cycles() - t[i];
+    }
+    print_microbench("kem_encaps:", t, MICROBENCH_ROUNDS);
+
+    for (int i = 0; i < MICROBENCH_ROUNDS; i++) {
+        t[i] = start_cycles();
+        avx512_mlwq_kem_decaps(ss, &kem_sk, &ct);
+        t[i] = stop_cycles() - t[i];
+    }
+    print_microbench("kem_decaps:", t, MICROBENCH_ROUNDS);
+
+    printf("\n");
+}
+
 // -------------------------------------------------------------------------
 // [Fix] Correct Size Display using Macros from params.h
 // -------------------------------------------------------------------------
@@ -378,7 +462,10 @@ void measure_pke_keygen_ref() {
     stats_ref.keygen_sample += dt_samp;
 
     derive_seed_d(seed_d, seed_A);
-    t1 = start_cycles(); ref_xof_expand_poly_vec(&d_pk, seed_d, MLWQ_Q / P_PK); t2 = stop_cycles();
+    uint8_t d_uniform_seed[33];
+    memcpy(d_uniform_seed, seed_d, 32);
+    d_uniform_seed[32] = 0xFF;
+    t1 = start_cycles(); ref_xof_expand_poly_vec(&d_pk, d_uniform_seed, MLWQ_Q / P_PK); t2 = stop_cycles();
     dt_dith = t2 - t1; stats_ref.keygen_gen_dither += dt_dith;
 
     t1 = start_cycles(); ref_poly_matrix_vec_mul(&As, &A, &s); t2 = stop_cycles();
@@ -410,12 +497,13 @@ void measure_pke_encrypt_ref() {
     dt_samp = t2 - t1;
     stats_ref.enc_sample += dt_samp;
 
-    t1 = start_cycles(); ref_xof_expand_poly_vec(&d_u, seed_ct, MLWQ_Q / P_U); t2 = stop_cycles();
+    uint8_t d_seed[33];
+    memcpy(d_seed, seed_ct, 32);
+    d_seed[32] = MLWQ_K;
+    t1 = start_cycles(); ref_xof_expand_poly_vec(&d_u, d_seed, MLWQ_Q / P_U); t2 = stop_cycles();
     dt_dith_u = t2 - t1; stats_ref.enc_gen_dither_u += dt_dith_u;
 
     t1 = start_cycles();
-    uint8_t d_seed[33];
-    memcpy(d_seed, seed_ct, 32);
     d_seed[32] = MLWQ_K + 1;
     ref_xof_expand_poly(&d_v, d_seed, MLWQ_Q / P_V);
     t2 = stop_cycles();
@@ -510,7 +598,10 @@ void measure_pke_keygen_avx() {
     dt_samp = t2 - t1;
     stats_avx.keygen_sample += dt_samp;
 
-    t1 = start_cycles(); avx_xof_expand_poly_vec(&d_pk, seed_d, MLWQ_Q / P_PK); t2 = stop_cycles();
+    uint8_t d_uniform_seed[33];
+    memcpy(d_uniform_seed, seed_d, 32);
+    d_uniform_seed[32] = 0xFF;
+    t1 = start_cycles(); avx_xof_expand_poly_vec(&d_pk, d_uniform_seed, MLWQ_Q / P_PK); t2 = stop_cycles();
     dt_dith = t2 - t1; stats_avx.keygen_gen_dither += dt_dith;
 
     t1 = start_cycles(); avx_poly_matrix_vec_mul(&As, &A, &s); t2 = stop_cycles();
@@ -542,12 +633,13 @@ void measure_pke_encrypt_avx() {
     dt_samp = t2 - t1;
     stats_avx.enc_sample += dt_samp;
 
-    t1 = start_cycles(); avx_xof_expand_poly_vec(&d_u, seed_ct, MLWQ_Q / P_U); t2 = stop_cycles();
+    uint8_t d_seed[33];
+    memcpy(d_seed, seed_ct, 32);
+    d_seed[32] = MLWQ_K;
+    t1 = start_cycles(); avx_xof_expand_poly_vec(&d_u, d_seed, MLWQ_Q / P_U); t2 = stop_cycles();
     dt_dith_u = t2 - t1; stats_avx.enc_gen_dither_u += dt_dith_u;
 
     t1 = start_cycles();
-    uint8_t d_seed[33];
-    memcpy(d_seed, seed_ct, 32);
     d_seed[32] = MLWQ_K + 1;
     avx_xof_expand_poly(&d_v, d_seed, MLWQ_Q / P_V);
     t2 = stop_cycles();
@@ -624,6 +716,143 @@ void measure_pke_decrypt_avx() {
     stats_avx.pke_decrypt += (dt_dq_u + dt_dq_v + dt_arith + dt_dec);
 }
 
+void measure_pke_keygen_avx512() {
+    uint64_t t1, t2;
+    uint64_t dt_mat, dt_samp, dt_dith, dt_arith, dt_quant;
+    uint8_t seed_A[32], seed_d[32], seed_s[32];
+    poly_matrix A; poly_vec s, d_pk, As, b_q;
+
+    random_bytes(seed_A, 32);
+    derive_seed_d(seed_d, seed_A);
+
+    t1 = start_cycles(); avx512_xof_expand_matrix(&A, seed_A); t2 = stop_cycles();
+    dt_mat = t2 - t1; stats_avx512.keygen_gen_matrix += dt_mat;
+
+    random_bytes(seed_s, 32);
+    t1 = start_cycles();
+    avx_polyvec_getnoise_eta1(&s, seed_s, 0);
+    t2 = stop_cycles();
+    dt_samp = t2 - t1;
+    stats_avx512.keygen_sample += dt_samp;
+
+    uint8_t d_uniform_seed[33];
+    memcpy(d_uniform_seed, seed_d, 32);
+    d_uniform_seed[32] = 0xFF;
+    t1 = start_cycles(); avx512_xof_expand_poly_vec(&d_pk, d_uniform_seed, MLWQ_Q / P_PK); t2 = stop_cycles();
+    dt_dith = t2 - t1; stats_avx512.keygen_gen_dither += dt_dith;
+
+    t1 = start_cycles(); avx_poly_matrix_vec_mul(&As, &A, &s); t2 = stop_cycles();
+    dt_arith = t2 - t1; stats_avx512.keygen_arith += dt_arith;
+
+    t1 = start_cycles(); for(int i=0; i<MLWQ_K; ++i) avx_poly_quantize(&b_q.vec[i], &As.vec[i], &d_pk.vec[i], P_PK); t2 = stop_cycles();
+    dt_quant = t2 - t1; stats_avx512.keygen_quantize += dt_quant;
+
+    stats_avx512.pke_keygen += (dt_mat + dt_samp + dt_dith + dt_arith + dt_quant);
+}
+
+void measure_pke_encrypt_avx512() {
+    uint64_t t1, t2;
+    uint64_t dt_mat, dt_samp, dt_dith_u, dt_dith_v, dt_b_dq, dt_msg, dt_au, dt_av, dt_quant_u, dt_quant_v;
+    uint8_t seed_ct[32];
+    uint8_t msg[32];
+    poly_matrix A; poly_vec r, d_u, Atr, u;
+    poly_vec b_q, b_deq;
+    poly d_v, v_val, v_final, m_poly;
+
+    random_bytes(seed_ct, 32);
+
+    t1 = start_cycles(); avx512_xof_expand_matrix(&A, seed_ct); t2 = stop_cycles();
+    dt_mat = t2 - t1; stats_avx512.enc_gen_matrix += dt_mat;
+
+    t1 = start_cycles();
+    avx_polyvec_getnoise_eta1(&r, seed_ct, 0);
+    t2 = stop_cycles();
+    dt_samp = t2 - t1;
+    stats_avx512.enc_sample += dt_samp;
+
+    uint8_t d_seed[33];
+    memcpy(d_seed, seed_ct, 32);
+    d_seed[32] = MLWQ_K;
+    t1 = start_cycles(); avx512_xof_expand_poly_vec(&d_u, d_seed, MLWQ_Q / P_U); t2 = stop_cycles();
+    dt_dith_u = t2 - t1; stats_avx512.enc_gen_dither_u += dt_dith_u;
+
+    t1 = start_cycles();
+    d_seed[32] = MLWQ_K + 1;
+    avx512_xof_expand_poly(&d_v, d_seed, MLWQ_Q / P_V);
+    t2 = stop_cycles();
+    dt_dith_v = t2 - t1; stats_avx512.enc_gen_dither_v += dt_dith_v;
+
+    random_bytes((uint8_t *)&b_q, sizeof(b_q));
+    t1 = start_cycles();
+    for (int i = 0; i < MLWQ_K; ++i) {
+        avx_poly_dequantize(&b_deq.vec[i], &b_q.vec[i], P_PK);
+    }
+    t2 = stop_cycles();
+    dt_b_dq = t2 - t1; stats_avx512.enc_b_dequant += dt_b_dq;
+
+    t1 = start_cycles();
+    poly_matrix At; for(int i=0;i<MLWQ_K;i++) for(int j=0;j<MLWQ_K;j++) At.row[i].vec[j] = A.row[j].vec[i];
+    avx_poly_matrix_vec_mul(&Atr, &At, &r);
+    t2 = stop_cycles();
+    dt_au = t2 - t1; stats_avx512.enc_arith_u += dt_au;
+
+    t1 = start_cycles();
+    avx_poly_vec_transpose_mul(&v_val, &r, &r);
+    t2 = stop_cycles();
+    dt_av = t2 - t1; stats_avx512.enc_arith_v += dt_av;
+
+    random_bytes(msg, sizeof(msg));
+    t1 = start_cycles(); avx_poly_msg_encode(&m_poly, msg); t2 = stop_cycles();
+    dt_msg = t2 - t1; stats_avx512.enc_msg_encode += dt_msg;
+
+    t1 = start_cycles();
+    for(int i=0; i<MLWQ_K; ++i) avx_poly_quantize(&u.vec[i], &Atr.vec[i], &d_u.vec[i], P_U);
+    t2 = stop_cycles();
+    dt_quant_u = t2 - t1; stats_avx512.enc_quant_u += dt_quant_u;
+
+    t1 = start_cycles();
+    avx_poly_add(&v_final, &v_val, &m_poly);
+    avx_poly_quantize(&v_final, &v_final, &d_v, P_V);
+    t2 = stop_cycles();
+    dt_quant_v = t2 - t1; stats_avx512.enc_quant_v += dt_quant_v;
+
+    stats_avx512.pke_encrypt += (dt_mat + dt_samp + dt_dith_u + dt_dith_v + dt_b_dq + dt_msg + dt_au + dt_av + dt_quant_u + dt_quant_v);
+}
+
+void measure_pke_decrypt_avx512() {
+    uint64_t t1, t2;
+    uint64_t dt_dq_u, dt_dq_v, dt_arith, dt_dec;
+    mlwq_pk pk; mlwq_sk sk; mlwq_ciphertext ct; uint8_t msg[32];
+    uint8_t seed_A[32], seed_d[32], seed_ct[32];
+    poly_vec u_deq;
+    poly diff;
+
+    random_bytes(seed_A, sizeof(seed_A));
+    random_bytes(seed_d, sizeof(seed_d));
+    random_bytes(seed_ct, sizeof(seed_ct));
+    random_bytes(msg, sizeof(msg));
+    avx512_mlwq_keygen(&pk, &sk, seed_A);
+    avx512_mlwq_encrypt(&ct, &pk, msg, seed_ct);
+
+    t1 = start_cycles();
+    for(int i=0; i<MLWQ_K; i++) avx_poly_dequantize(&u_deq.vec[i], &ct.u.vec[i], P_U);
+    t2 = stop_cycles();
+    dt_dq_u = t2 - t1; stats_avx512.dec_dequant_u += dt_dq_u;
+
+    t1 = start_cycles();
+    avx_poly_dequantize(&diff, &ct.v, P_V);
+    t2 = stop_cycles();
+    dt_dq_v = t2 - t1; stats_avx512.dec_dequant_v += dt_dq_v;
+
+    t1 = start_cycles(); avx_poly_vec_transpose_mul(&diff, &sk.s, &u_deq); t2 = stop_cycles();
+    dt_arith = t2 - t1; stats_avx512.dec_arith += dt_arith;
+
+    t1 = start_cycles(); avx_poly_msg_decode(msg, &diff); t2 = stop_cycles();
+    dt_dec = t2 - t1; stats_avx512.dec_decode += dt_dec;
+
+    stats_avx512.pke_decrypt += (dt_dq_u + dt_dq_v + dt_arith + dt_dec);
+}
+
 int main() {
     random_init();
     printf("\n=== M-LWQ Comprehensive Performance Report ===\n");
@@ -649,8 +878,16 @@ int main() {
         printf("   [PASS] Correctness verified.\n");
     else { printf("   [FAIL] AVX Logic failed!\n"); return 1; }
 
+    printf(">>> Running: AVX512 Mode (%d rounds)...\n", ROUNDS);
+    avx512_mlwq_kem_keygen(&pk, &sk);
+    avx512_mlwq_kem_encaps(&ct, ss1, &pk);
+    if(avx512_mlwq_kem_decaps(ss2, &sk, &ct) && memcmp(ss1, ss2, 32)==0)
+        printf("   [PASS] Correctness verified.\n");
+    else { printf("   [FAIL] AVX512 Logic failed!\n"); return 1; }
+
     memset(&stats_ref, 0, sizeof(bench_stats_t));
     memset(&stats_avx, 0, sizeof(bench_stats_t));
+    memset(&stats_avx512, 0, sizeof(bench_stats_t));
 
     uint64_t t1, t2;
 
@@ -662,6 +899,10 @@ int main() {
         measure_pke_keygen_avx();
         measure_pke_encrypt_avx();
         measure_pke_decrypt_avx();
+
+        measure_pke_keygen_avx512();
+        measure_pke_encrypt_avx512();
+        measure_pke_decrypt_avx512();
 
         t1 = start_cycles(); ref_mlwq_kem_keygen(&pk, &sk); t2 = stop_cycles();
         stats_ref.kem_keygen += (t2 - t1);
@@ -676,6 +917,13 @@ int main() {
         stats_avx.kem_encaps += (t2 - t1);
         t1 = start_cycles(); avx_mlwq_kem_decaps(ss2, &sk, &ct); t2 = stop_cycles();
         stats_avx.kem_decaps += (t2 - t1);
+
+        t1 = start_cycles(); avx512_mlwq_kem_keygen(&pk, &sk); t2 = stop_cycles();
+        stats_avx512.kem_keygen += (t2 - t1);
+        t1 = start_cycles(); avx512_mlwq_kem_encaps(&ct, ss1, &pk); t2 = stop_cycles();
+        stats_avx512.kem_encaps += (t2 - t1);
+        t1 = start_cycles(); avx512_mlwq_kem_decaps(ss2, &sk, &ct); t2 = stop_cycles();
+        stats_avx512.kem_decaps += (t2 - t1);
     }
 
     // --- Report ---
@@ -691,6 +939,18 @@ int main() {
     printf("%-20s %-15lu %-15lu %-.2fx            %.1f%%\n", "GenDither", avg(stats_ref.keygen_gen_dither), avg(stats_avx.keygen_gen_dither), (double)avg(stats_ref.keygen_gen_dither)/avg(stats_avx.keygen_gen_dither), 100.0*avg(stats_ref.keygen_gen_dither)/s_kg_total);
     printf("%-20s %-15lu %-15lu %-.2fx            %.1f%%\n", "Arith (A*s)", avg(stats_ref.keygen_arith), avg(stats_avx.keygen_arith), (double)avg(stats_ref.keygen_arith)/avg(stats_avx.keygen_arith), 100.0*avg(stats_ref.keygen_arith)/s_kg_total);
     printf("%-20s %-15lu %-15lu %-.2fx            %.1f%%\n", "Quantize", avg(stats_ref.keygen_quantize), avg(stats_avx.keygen_quantize), (double)avg(stats_ref.keygen_quantize)/avg(stats_avx.keygen_quantize), 100.0*avg(stats_ref.keygen_quantize)/s_kg_total);
+
+    printf("\n");
+    print_sep();
+    printf(" PKE KeyGen Breakdown (AVX512)\n");
+    print_sep();
+    printf("%-20s %-15s %-15s %-15s %-10s\n", "Sub-Component", "Scalar (cyc)", "AVX512 (cyc)", "Speedup", "Scalar %");
+
+    printf("%-20s %-15lu %-15lu %-.2fx            %.1f%%\n", "GenMatrix (A)", avg(stats_ref.keygen_gen_matrix), avg(stats_avx512.keygen_gen_matrix), (double)avg(stats_ref.keygen_gen_matrix)/avg(stats_avx512.keygen_gen_matrix), 100.0*avg(stats_ref.keygen_gen_matrix)/s_kg_total);
+    printf("%-20s %-15lu %-15lu %-.2fx            %.1f%%\n", "Sample (s)", avg(stats_ref.keygen_sample), avg(stats_avx512.keygen_sample), (double)avg(stats_ref.keygen_sample)/avg(stats_avx512.keygen_sample), 100.0*avg(stats_ref.keygen_sample)/s_kg_total);
+    printf("%-20s %-15lu %-15lu %-.2fx            %.1f%%\n", "GenDither", avg(stats_ref.keygen_gen_dither), avg(stats_avx512.keygen_gen_dither), (double)avg(stats_ref.keygen_gen_dither)/avg(stats_avx512.keygen_gen_dither), 100.0*avg(stats_ref.keygen_gen_dither)/s_kg_total);
+    printf("%-20s %-15lu %-15lu %-.2fx            %.1f%%\n", "Arith (A*s)", avg(stats_ref.keygen_arith), avg(stats_avx512.keygen_arith), (double)avg(stats_ref.keygen_arith)/avg(stats_avx512.keygen_arith), 100.0*avg(stats_ref.keygen_arith)/s_kg_total);
+    printf("%-20s %-15lu %-15lu %-.2fx            %.1f%%\n", "Quantize", avg(stats_ref.keygen_quantize), avg(stats_avx512.keygen_quantize), (double)avg(stats_ref.keygen_quantize)/avg(stats_avx512.keygen_quantize), 100.0*avg(stats_ref.keygen_quantize)/s_kg_total);
 
     printf("\n");
     print_sep();
@@ -714,6 +974,26 @@ int main() {
 
     printf("\n");
     print_sep();
+    printf(" PKE Encrypt Breakdown (AVX512)\n");
+    print_sep();
+    printf("%-20s %-15s %-15s %-15s\n", "Sub-Component", "Scalar (cyc)", "AVX512 (cyc)", "Speedup");
+
+    uint64_t au_avx512 = avg(stats_avx512.enc_arith_u);
+    uint64_t av_avx512 = avg(stats_avx512.enc_arith_v);
+
+    printf("%-20s %-15lu %-15lu %-.2fx\n", "GenMatrix (A)", avg(stats_ref.enc_gen_matrix), avg(stats_avx512.enc_gen_matrix), (double)avg(stats_ref.enc_gen_matrix)/avg(stats_avx512.enc_gen_matrix));
+    printf("%-20s %-15lu %-15lu %-.2fx\n", "Sample (r)", avg(stats_ref.enc_sample), avg(stats_avx512.enc_sample), (double)avg(stats_ref.enc_sample)/avg(stats_avx512.enc_sample));
+    printf("%-20s %-15lu %-15lu %-.2fx\n", "GenDither (u)", avg(stats_ref.enc_gen_dither_u), avg(stats_avx512.enc_gen_dither_u), (double)avg(stats_ref.enc_gen_dither_u)/avg(stats_avx512.enc_gen_dither_u));
+    printf("%-20s %-15lu %-15lu %-.2fx\n", "GenDither (v)", avg(stats_ref.enc_gen_dither_v), avg(stats_avx512.enc_gen_dither_v), (double)avg(stats_ref.enc_gen_dither_v)/avg(stats_avx512.enc_gen_dither_v));
+    printf("%-20s %-15lu %-15lu %-.2fx\n", "DeQuantize (b)", avg(stats_ref.enc_b_dequant), avg(stats_avx512.enc_b_dequant), (double)avg(stats_ref.enc_b_dequant)/avg(stats_avx512.enc_b_dequant));
+    printf("%-20s %-15lu %-15lu %-.2fx\n", "Msg Encode", avg(stats_ref.enc_msg_encode), avg(stats_avx512.enc_msg_encode), (double)avg(stats_ref.enc_msg_encode)/avg(stats_avx512.enc_msg_encode));
+    printf("%-20s %-15lu %-15lu %-.2fx\n", "Arith (u)", au_ref, au_avx512, (double)au_ref/au_avx512);
+    printf("%-20s %-15lu %-15lu %-.2fx\n", "Arith (v)", av_ref, av_avx512, (double)av_ref/av_avx512);
+    printf("%-20s %-15lu %-15lu %-.2fx\n", "Quantize (u)", avg(stats_ref.enc_quant_u), avg(stats_avx512.enc_quant_u), (double)avg(stats_ref.enc_quant_u)/avg(stats_avx512.enc_quant_u));
+    printf("%-20s %-15lu %-15lu %-.2fx\n", "Quantize (v)", avg(stats_ref.enc_quant_v), avg(stats_avx512.enc_quant_v), (double)avg(stats_ref.enc_quant_v)/avg(stats_avx512.enc_quant_v));
+
+    printf("\n");
+    print_sep();
     printf(" PKE Decrypt Breakdown (Detailed)\n");
     print_sep();
     printf("%-20s %-15s %-15s %-15s\n", "Sub-Component", "Scalar (cyc)", "AVX2 (cyc)", "Speedup");
@@ -728,6 +1008,22 @@ int main() {
     printf("%-20s %-15lu %-15lu %-.2fx\n", "Arith (v-su)", ar_dec_ref, ar_dec_avx, (double)ar_dec_ref/ar_dec_avx);
     printf("%-20s %-15lu %-15lu %-.2fx\n", "Decode", dc_ref, dc_avx, (double)dc_ref/dc_avx);
 
+    printf("\n");
+    print_sep();
+    printf(" PKE Decrypt Breakdown (AVX512)\n");
+    print_sep();
+    printf("%-20s %-15s %-15s %-15s\n", "Sub-Component", "Scalar (cyc)", "AVX512 (cyc)", "Speedup");
+
+    uint64_t dq_u_avx512 = avg(stats_avx512.dec_dequant_u);
+    uint64_t dq_v_avx512 = avg(stats_avx512.dec_dequant_v);
+    uint64_t dc_avx512 = avg(stats_avx512.dec_decode);
+    uint64_t ar_dec_avx512 = avg(stats_avx512.dec_arith);
+
+    printf("%-20s %-15lu %-15lu %-.2fx\n", "DeQuantize (u)", dq_u_ref, dq_u_avx512, (double)dq_u_ref/dq_u_avx512);
+    printf("%-20s %-15lu %-15lu %-.2fx\n", "DeQuantize (v)", dq_v_ref, dq_v_avx512, (double)dq_v_ref/dq_v_avx512);
+    printf("%-20s %-15lu %-15lu %-.2fx\n", "Arith (v-su)", ar_dec_ref, ar_dec_avx512, (double)ar_dec_ref/ar_dec_avx512);
+    printf("%-20s %-15lu %-15lu %-.2fx\n", "Decode", dc_ref, dc_avx512, (double)dc_ref/dc_avx512);
+
     printf("\n\n>>> PART 2: Core Component Comparison (Quantize vs Sample)\n");
     print_sep();
     printf("%-10s %-10s %-15s %-15s %-20s %-20s\n", "Component", "Mode", "Quantize", "Sample", "Alg. Efficiency", "AVX Improvement");
@@ -735,27 +1031,66 @@ int main() {
     
     uint64_t q_ref = avg(stats_ref.keygen_quantize); uint64_t s_ref = avg(stats_ref.keygen_sample);
     uint64_t q_avx = avg(stats_avx.keygen_quantize); uint64_t s_avx = avg(stats_avx.keygen_sample);
+    uint64_t q_avx512 = avg(stats_avx512.keygen_quantize); uint64_t s_avx512 = avg(stats_avx512.keygen_sample);
     printf("%-10s %-10s %-15lu %-15lu %-.2fx                 %-20s\n", "PK / u", "Scalar", q_ref, s_ref, (double)s_ref/q_ref, "1.00x (Ref)");
     printf("%-10s %-10s %-15lu %-15lu %-.2fx                 %-.2fx\n", "PK / u", "AVX2", q_avx, s_avx, (double)s_avx/q_avx, (double)q_ref/q_avx);
+    printf("%-10s %-10s %-15lu %-15lu %-.2fx                 %-.2fx\n", "PK / u", "AVX512", q_avx512, s_avx512, (double)s_avx512/q_avx512, (double)q_ref/q_avx512);
 
     printf("\n\n>>> PART 3: PKE Full Flow Summary (Total Time)\n");
     print_sep();
-    printf("%-20s %-15s %-15s %-10s\n", "Operation", "Scalar Cycles", "AVX2 Cycles", "Speedup");
+    printf("%-20s %-15s %-15s %-15s %-10s %-10s\n", "Operation", "Scalar", "AVX2", "AVX512", "Spd(2)", "Spd(512)");
     print_sep();
-    printf("%-20s %-15lu %-15lu %-.2fx\n", "PKE KeyGen", avg(stats_ref.pke_keygen), avg(stats_avx.pke_keygen), (double)avg(stats_ref.pke_keygen)/avg(stats_avx.pke_keygen));
-    printf("%-20s %-15lu %-15lu %-.2fx\n", "PKE Encrypt", avg(stats_ref.pke_encrypt), avg(stats_avx.pke_encrypt), (double)avg(stats_ref.pke_encrypt)/avg(stats_avx.pke_encrypt));
-    printf("%-20s %-15lu %-15lu %-.2fx\n", "PKE Decrypt", avg(stats_ref.pke_decrypt), avg(stats_avx.pke_decrypt), (double)avg(stats_ref.pke_decrypt)/avg(stats_avx.pke_decrypt));
+    printf("%-20s %-15lu %-15lu %-15lu %-.2fx    %-.2fx\n",
+           "PKE KeyGen",
+           avg(stats_ref.pke_keygen),
+           avg(stats_avx.pke_keygen),
+           avg(stats_avx512.pke_keygen),
+           (double)avg(stats_ref.pke_keygen)/avg(stats_avx.pke_keygen),
+           (double)avg(stats_ref.pke_keygen)/avg(stats_avx512.pke_keygen));
+    printf("%-20s %-15lu %-15lu %-15lu %-.2fx    %-.2fx\n",
+           "PKE Encrypt",
+           avg(stats_ref.pke_encrypt),
+           avg(stats_avx.pke_encrypt),
+           avg(stats_avx512.pke_encrypt),
+           (double)avg(stats_ref.pke_encrypt)/avg(stats_avx.pke_encrypt),
+           (double)avg(stats_ref.pke_encrypt)/avg(stats_avx512.pke_encrypt));
+    printf("%-20s %-15lu %-15lu %-15lu %-.2fx    %-.2fx\n",
+           "PKE Decrypt",
+           avg(stats_ref.pke_decrypt),
+           avg(stats_avx.pke_decrypt),
+           avg(stats_avx512.pke_decrypt),
+           (double)avg(stats_ref.pke_decrypt)/avg(stats_avx.pke_decrypt),
+           (double)avg(stats_ref.pke_decrypt)/avg(stats_avx512.pke_decrypt));
 
     printf("\n\n>>> PART 4: KEM Full Flow Summary (IND-CCA2)\n");
     print_sep();
-    printf("%-20s %-15s %-15s %-10s\n", "Operation", "Scalar Cycles", "AVX2 Cycles", "Speedup");
+    printf("%-20s %-15s %-15s %-15s %-10s %-10s\n", "Operation", "Scalar", "AVX2", "AVX512", "Spd(2)", "Spd(512)");
     print_sep();
-    printf("%-20s %-15lu %-15lu %-.2fx\n", "KEM KeyGen", avg(stats_ref.kem_keygen), avg(stats_avx.kem_keygen), (double)avg(stats_ref.kem_keygen)/avg(stats_avx.kem_keygen));
-    printf("%-20s %-15lu %-15lu %-.2fx\n", "KEM Encaps", avg(stats_ref.kem_encaps), avg(stats_avx.kem_encaps), (double)avg(stats_ref.kem_encaps)/avg(stats_avx.kem_encaps));
-    printf("%-20s %-15lu %-15lu %-.2fx\n", "KEM Decaps", avg(stats_ref.kem_decaps), avg(stats_avx.kem_decaps), (double)avg(stats_ref.kem_decaps)/avg(stats_avx.kem_decaps));
+    printf("%-20s %-15lu %-15lu %-15lu %-.2fx    %-.2fx\n",
+           "KEM KeyGen",
+           avg(stats_ref.kem_keygen),
+           avg(stats_avx.kem_keygen),
+           avg(stats_avx512.kem_keygen),
+           (double)avg(stats_ref.kem_keygen)/avg(stats_avx.kem_keygen),
+           (double)avg(stats_ref.kem_keygen)/avg(stats_avx512.kem_keygen));
+    printf("%-20s %-15lu %-15lu %-15lu %-.2fx    %-.2fx\n",
+           "KEM Encaps",
+           avg(stats_ref.kem_encaps),
+           avg(stats_avx.kem_encaps),
+           avg(stats_avx512.kem_encaps),
+           (double)avg(stats_ref.kem_encaps)/avg(stats_avx.kem_encaps),
+           (double)avg(stats_ref.kem_encaps)/avg(stats_avx512.kem_encaps));
+    printf("%-20s %-15lu %-15lu %-15lu %-.2fx    %-.2fx\n",
+           "KEM Decaps",
+           avg(stats_ref.kem_decaps),
+           avg(stats_avx.kem_decaps),
+           avg(stats_avx512.kem_decaps),
+           (double)avg(stats_ref.kem_decaps)/avg(stats_avx.kem_decaps),
+           (double)avg(stats_ref.kem_decaps)/avg(stats_avx512.kem_decaps));
     
     print_sep();
     run_microbench_avx2();
+    run_microbench_avx512();
     printf("\n[FINAL] All checks passed! Implementation is correct.\n");
 
     return 0;
