@@ -62,10 +62,9 @@ static void poly_getnoise_eta1(poly *r, const uint8_t *seed, uint8_t nonce) {
 // Core Logic
 // -------------------------------------------------------------------------
 
-void ref_mlwq_keygen(mlwq_pk *pk, mlwq_sk *sk, const uint8_t *seed_A, const uint8_t *seed_d) {
+void ref_mlwq_keygen(mlwq_pk *pk, mlwq_sk *sk, const uint8_t *seed_A) {
     poly_matrix A;
     ref_xof_expand_matrix(&A, seed_A);
-    (void)seed_d;
     
     // print_debug("Matrix A[0][0]", A.row[0].vec[0].coeffs, 8);
 
@@ -175,14 +174,13 @@ void ref_mlwq_decrypt(uint8_t *msg, const mlwq_sk *sk, const mlwq_ciphertext *ct
 
 void ref_mlwq_kem_keygen(mlwq_pk *pk, mlwq_kem_sk *sk) {
     memset(pk, 0, sizeof(mlwq_pk));
-    uint8_t seed_A[32], seed_d[32];
+    uint8_t seed_A[32];
     random_bytes(seed_A, 32);
-    derive_seed_d(seed_d, seed_A);
 
     // memset(seed_A,0,32);
     // memset(seed_d,0,32);
 
-    ref_mlwq_keygen(pk, &sk->pke_sk, seed_A, seed_d);
+    ref_mlwq_keygen(pk, &sk->pke_sk, seed_A);
     
     sk->pk = *pk; 
     shake128(sk->h_pk, 32, (uint8_t*)pk, sizeof(mlwq_pk));

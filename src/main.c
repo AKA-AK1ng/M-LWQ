@@ -29,7 +29,7 @@ extern void ref_poly_dequantize(poly *res, const poly *b, int32_t P);
 extern void ref_poly_getnoise_eta1(poly *r, const uint8_t *seed, uint8_t nonce);
 extern void ref_poly_msg_decode(uint8_t *msg, const poly *p);
 extern void ref_poly_msg_encode(poly *res, const uint8_t *msg);
-extern void ref_mlwq_keygen(mlwq_pk *pk, mlwq_sk *sk, const uint8_t *seed_A, const uint8_t *seed_d);
+extern void ref_mlwq_keygen(mlwq_pk *pk, mlwq_sk *sk, const uint8_t *seed_A);
 extern void ref_mlwq_encrypt(mlwq_ciphertext *ct, const mlwq_pk *pk, const uint8_t *msg, const uint8_t *seed_ct);
 extern void ref_mlwq_kem_keygen(mlwq_pk *pk, mlwq_kem_sk *sk);
 extern void ref_mlwq_kem_encaps(mlwq_ciphertext *ct, uint8_t *ss, const mlwq_pk *pk);
@@ -44,7 +44,7 @@ extern void avx_poly_quantize(poly *res, const poly *v, const poly *d, int32_t P
 extern void avx_poly_dequantize(poly *res, const poly *b, int32_t P);
 extern void avx_poly_msg_decode(uint8_t *msg, const poly *p);
 extern void avx_polyvec_getnoise_eta1(poly_vec *r, const uint8_t seed[32], uint8_t nonce_base);
-extern void avx_mlwq_keygen(mlwq_pk *pk, mlwq_sk *sk, const uint8_t *seed_A, const uint8_t *seed_d);
+extern void avx_mlwq_keygen(mlwq_pk *pk, mlwq_sk *sk, const uint8_t *seed_A);
 extern void avx_mlwq_encrypt(mlwq_ciphertext *ct, const mlwq_pk *pk, const uint8_t *msg, const uint8_t *seed_ct);
 extern void avx_mlwq_kem_keygen(mlwq_pk *pk, mlwq_kem_sk *sk);
 extern void avx_mlwq_kem_encaps(mlwq_ciphertext *ct, uint8_t *ss, const mlwq_pk *pk);
@@ -239,7 +239,7 @@ static void run_microbench_avx2(void) {
 
     for (int i = 0; i < MICROBENCH_ROUNDS; i++) {
         t[i] = start_cycles();
-        avx_mlwq_keygen(&pk, &sk, seed, seed);
+        avx_mlwq_keygen(&pk, &sk, seed);
         t[i] = stop_cycles() - t[i];
     }
     print_microbench("indcpa_keypair:", t, MICROBENCH_ROUNDS);
@@ -469,7 +469,7 @@ void measure_pke_decrypt_ref() {
     random_bytes(seed_d, sizeof(seed_d));
     random_bytes(seed_ct, sizeof(seed_ct));
     random_bytes(msg, sizeof(msg));
-    ref_mlwq_keygen(&pk, &sk, seed_A, seed_d);
+    ref_mlwq_keygen(&pk, &sk, seed_A);
     ref_mlwq_encrypt(&ct, &pk, msg, seed_ct);
 
     t1 = start_cycles();
@@ -602,7 +602,7 @@ void measure_pke_decrypt_avx() {
     random_bytes(seed_d, sizeof(seed_d));
     random_bytes(seed_ct, sizeof(seed_ct));
     random_bytes(msg, sizeof(msg));
-    avx_mlwq_keygen(&pk, &sk, seed_A, seed_d);
+    avx_mlwq_keygen(&pk, &sk, seed_A);
     avx_mlwq_encrypt(&ct, &pk, msg, seed_ct);
 
     t1 = start_cycles();

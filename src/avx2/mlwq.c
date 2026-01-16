@@ -172,11 +172,10 @@ void avx_polyvec_getnoise_eta1(poly_vec *r, const uint8_t seed[32], uint8_t nonc
 // -------------------------------------------------------------------------
 // PKE KeyGen
 // -------------------------------------------------------------------------
-void avx_mlwq_keygen(mlwq_pk *pk, mlwq_sk *sk, const uint8_t *seed_A, const uint8_t *seed_d) {
+void avx_mlwq_keygen(mlwq_pk *pk, mlwq_sk *sk, const uint8_t *seed_A) {
     // 1. 生成矩阵 A (SHAKE128)
     poly_matrix A;
     avx_xof_expand_matrix(&A, seed_A);
-    (void)seed_d;
     poly_matrix A_ntt = A;
     for (int i = 0; i < MLWQ_K; ++i) {
         for (int j = 0; j < MLWQ_K; ++j) {
@@ -334,10 +333,9 @@ void avx_mlwq_decrypt(uint8_t *msg, const mlwq_sk *sk, const mlwq_ciphertext *ct
 }
 
 void avx_mlwq_kem_keygen(mlwq_pk *pk, mlwq_kem_sk *sk) {
-    uint8_t seed_A[32], seed_d[32];
+    uint8_t seed_A[32];
     random_bytes(seed_A, 32);
-    derive_seed_d(seed_d, seed_A);
-    avx_mlwq_keygen(pk, &sk->pke_sk, seed_A, seed_d);
+    avx_mlwq_keygen(pk, &sk->pke_sk, seed_A);
     sk->pk = *pk;
     shake128(sk->h_pk, 32, (uint8_t*)pk, sizeof(mlwq_pk));
     random_bytes(sk->z, 32);
