@@ -8,6 +8,13 @@
 #include <string.h>
 #include <immintrin.h> // 必须包含 AVX2 头文件
 
+static void derive_seed_d(uint8_t *seed_d, const uint8_t *seed_a) {
+    uint8_t input[33];
+    memcpy(input, seed_a, 32);
+    input[32] = 0x01;
+    shake128(seed_d, 32, input, sizeof(input));
+}
+
 // 引入并行哈希头文件
 #include "fips202x4.h"
 
@@ -165,7 +172,7 @@ void avx_polyvec_getnoise_eta1(poly_vec *r, const uint8_t seed[32], uint8_t nonc
 // -------------------------------------------------------------------------
 // PKE KeyGen
 // -------------------------------------------------------------------------
-void avx_mlwq_keygen(mlwq_pk *pk, mlwq_sk *sk, const uint8_t *seed_A, const uint8_t *seed_d) {
+void avx_mlwq_keygen(mlwq_pk *pk, mlwq_sk *sk, const uint8_t *seed_A) {
     // 1. 生成矩阵 A (SHAKE128)
     poly_matrix A;
     avx_xof_expand_matrix(&A, seed_A);
@@ -184,7 +191,9 @@ void avx_mlwq_keygen(mlwq_pk *pk, mlwq_sk *sk, const uint8_t *seed_A, const uint
 
     // 3. 生成 d_pk (SHAKE128)
     poly_vec d_pk;
-    avx_xof_expand_poly_vec(&d_pk, seed_d, MLWQ_Q / P_PK);
+    uint8_t d_seed[32];
+    derive_seed_d(d_seed, seed_A);
+    avx_xof_expand_poly_vec(&d_pk, d_seed, MLWQ_Q / P_PK);
     
     // 4. 计算 As + d (复用 NTT 域矩阵，避免重复变换)
     poly_vec As;
@@ -195,7 +204,7 @@ void avx_mlwq_keygen(mlwq_pk *pk, mlwq_sk *sk, const uint8_t *seed_A, const uint
     avx_poly_matrix_vec_mul_ntt(&As, &A_ntt, &s_ntt);
     
     memcpy(pk->seed_A, seed_A, 32);
-    memcpy(pk->seed_d, seed_d, 32);
+    memcpy(pk->seed_d, d_seed, 32);
     
     for(int i=0; i<MLWQ_K; ++i)
         avx_poly_quantize(&pk->b_q.vec[i], &As.vec[i], &d_pk.vec[i], P_PK);
@@ -324,10 +333,9 @@ void avx_mlwq_decrypt(uint8_t *msg, const mlwq_sk *sk, const mlwq_ciphertext *ct
 }
 
 void avx_mlwq_kem_keygen(mlwq_pk *pk, mlwq_kem_sk *sk) {
-    uint8_t seed_A[32], seed_d[32];
+    uint8_t seed_A[32];
     random_bytes(seed_A, 32);
-    random_bytes(seed_d, 32);
-    avx_mlwq_keygen(pk, &sk->pke_sk, seed_A, seed_d);
+    avx_mlwq_keygen(pk, &sk->pke_sk, seed_A);
     sk->pk = *pk;
     shake128(sk->h_pk, 32, (uint8_t*)pk, sizeof(mlwq_pk));
     random_bytes(sk->z, 32);

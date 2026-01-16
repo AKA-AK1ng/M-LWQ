@@ -10,6 +10,13 @@
 #include "common/structs.h"
 #include "common/fips202.h"
 
+static void derive_seed_d(uint8_t *seed_d, const uint8_t *seed_a) {
+    uint8_t input[33];
+    memcpy(input, seed_a, 32);
+    input[32] = 0x01;
+    shake128(seed_d, 32, input, sizeof(input));
+}
+
 // -------------------------------------------------------------------------
 // External Functions
 // -------------------------------------------------------------------------
@@ -22,7 +29,7 @@ extern void ref_poly_dequantize(poly *res, const poly *b, int32_t P);
 extern void ref_poly_getnoise_eta1(poly *r, const uint8_t *seed, uint8_t nonce);
 extern void ref_poly_msg_decode(uint8_t *msg, const poly *p);
 extern void ref_poly_msg_encode(poly *res, const uint8_t *msg);
-extern void ref_mlwq_keygen(mlwq_pk *pk, mlwq_sk *sk, const uint8_t *seed_A, const uint8_t *seed_d);
+extern void ref_mlwq_keygen(mlwq_pk *pk, mlwq_sk *sk, const uint8_t *seed_A);
 extern void ref_mlwq_encrypt(mlwq_ciphertext *ct, const mlwq_pk *pk, const uint8_t *msg, const uint8_t *seed_ct);
 extern void ref_mlwq_kem_keygen(mlwq_pk *pk, mlwq_kem_sk *sk);
 extern void ref_mlwq_kem_encaps(mlwq_ciphertext *ct, uint8_t *ss, const mlwq_pk *pk);
@@ -37,7 +44,7 @@ extern void avx_poly_quantize(poly *res, const poly *v, const poly *d, int32_t P
 extern void avx_poly_dequantize(poly *res, const poly *b, int32_t P);
 extern void avx_poly_msg_decode(uint8_t *msg, const poly *p);
 extern void avx_polyvec_getnoise_eta1(poly_vec *r, const uint8_t seed[32], uint8_t nonce_base);
-extern void avx_mlwq_keygen(mlwq_pk *pk, mlwq_sk *sk, const uint8_t *seed_A, const uint8_t *seed_d);
+extern void avx_mlwq_keygen(mlwq_pk *pk, mlwq_sk *sk, const uint8_t *seed_A);
 extern void avx_mlwq_encrypt(mlwq_ciphertext *ct, const mlwq_pk *pk, const uint8_t *msg, const uint8_t *seed_ct);
 extern void avx_mlwq_kem_keygen(mlwq_pk *pk, mlwq_kem_sk *sk);
 extern void avx_mlwq_kem_encaps(mlwq_ciphertext *ct, uint8_t *ss, const mlwq_pk *pk);
@@ -232,7 +239,7 @@ static void run_microbench_avx2(void) {
 
     for (int i = 0; i < MICROBENCH_ROUNDS; i++) {
         t[i] = start_cycles();
-        avx_mlwq_keygen(&pk, &sk, seed, seed);
+        avx_mlwq_keygen(&pk, &sk, seed);
         t[i] = stop_cycles() - t[i];
     }
     print_microbench("indcpa_keypair:", t, MICROBENCH_ROUNDS);
@@ -353,7 +360,7 @@ static uint64_t measure_cbd_scalar() {
 // -------------------------------------------------------------------------
 void measure_pke_keygen_ref() {
     uint64_t t1, t2;
-    uint64_t dt_mat, dt_samp, dt_dith, dt_arith, dt_quant; 
+    uint64_t dt_mat, dt_samp, dt_dith, dt_arith, dt_quant;
     uint8_t seed_A[32], seed_d[32], seed_s[32];
     random_bytes(seed_A, 32); random_bytes(seed_d, 32);
     poly_matrix A; poly_vec s, d_pk, As, b_q;
@@ -370,6 +377,7 @@ void measure_pke_keygen_ref() {
     dt_samp = t2 - t1;
     stats_ref.keygen_sample += dt_samp;
 
+    derive_seed_d(seed_d, seed_A);
     t1 = start_cycles(); ref_xof_expand_poly_vec(&d_pk, seed_d, MLWQ_Q / P_PK); t2 = stop_cycles();
     dt_dith = t2 - t1; stats_ref.keygen_gen_dither += dt_dith;
 
@@ -461,7 +469,7 @@ void measure_pke_decrypt_ref() {
     random_bytes(seed_d, sizeof(seed_d));
     random_bytes(seed_ct, sizeof(seed_ct));
     random_bytes(msg, sizeof(msg));
-    ref_mlwq_keygen(&pk, &sk, seed_A, seed_d);
+    ref_mlwq_keygen(&pk, &sk, seed_A);
     ref_mlwq_encrypt(&ct, &pk, msg, seed_ct);
 
     t1 = start_cycles();
@@ -490,7 +498,7 @@ void measure_pke_keygen_avx() {
     poly_matrix A; poly_vec s, d_pk, As, b_q;
     
     random_bytes(seed_A, 32);
-    random_bytes(seed_d, 32);
+    derive_seed_d(seed_d, seed_A);
 
     t1 = start_cycles(); avx_xof_expand_matrix(&A, seed_A); t2 = stop_cycles();
     dt_mat = t2 - t1; stats_avx.keygen_gen_matrix += dt_mat;
@@ -594,7 +602,7 @@ void measure_pke_decrypt_avx() {
     random_bytes(seed_d, sizeof(seed_d));
     random_bytes(seed_ct, sizeof(seed_ct));
     random_bytes(msg, sizeof(msg));
-    avx_mlwq_keygen(&pk, &sk, seed_A, seed_d);
+    avx_mlwq_keygen(&pk, &sk, seed_A);
     avx_mlwq_encrypt(&ct, &pk, msg, seed_ct);
 
     t1 = start_cycles();

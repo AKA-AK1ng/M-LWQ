@@ -7,6 +7,13 @@
 #include <string.h>
 #include <stdio.h>
 
+static void derive_seed_d(uint8_t *seed_d, const uint8_t *seed_a) {
+    uint8_t input[33];
+    memcpy(input, seed_a, 32);
+    input[32] = 0x01;
+    shake128(seed_d, 32, input, sizeof(input));
+}
+
 // -------------------------------------------------------------------------
 // CBD Logic (Centered Binomial Distribution)
 // -------------------------------------------------------------------------
@@ -55,7 +62,7 @@ static void poly_getnoise_eta1(poly *r, const uint8_t *seed, uint8_t nonce) {
 // Core Logic
 // -------------------------------------------------------------------------
 
-void ref_mlwq_keygen(mlwq_pk *pk, mlwq_sk *sk, const uint8_t *seed_A, const uint8_t *seed_d) {
+void ref_mlwq_keygen(mlwq_pk *pk, mlwq_sk *sk, const uint8_t *seed_A) {
     poly_matrix A;
     ref_xof_expand_matrix(&A, seed_A);
     
@@ -77,7 +84,9 @@ void ref_mlwq_keygen(mlwq_pk *pk, mlwq_sk *sk, const uint8_t *seed_A, const uint
     // We keep dither uniform as per M-LWQ spec.
     poly_vec d_pk;
     uint8_t d_uniform_seed[33];
-    memcpy(d_uniform_seed, seed_d, 32); 
+    uint8_t d_seed[32];
+    derive_seed_d(d_seed, seed_A);
+    memcpy(d_uniform_seed, d_seed, 32);
     d_uniform_seed[32] = 0xFF; // Domain separator to avoid collision with s
     ref_xof_expand_poly_vec(&d_pk, d_uniform_seed, MLWQ_Q / P_PK);
     
@@ -89,7 +98,7 @@ void ref_mlwq_keygen(mlwq_pk *pk, mlwq_sk *sk, const uint8_t *seed_A, const uint
     // print_debug("Result As[0]", As.vec[0].coeffs, 8);
 
     memcpy(pk->seed_A, seed_A, 32);
-    memcpy(pk->seed_d, seed_d, 32);
+    memcpy(pk->seed_d, d_seed, 32);
     
     for(int i=0; i<MLWQ_K; ++i)
         ref_poly_quantize(&pk->b_q.vec[i], &As.vec[i], &d_pk.vec[i], P_PK);
@@ -165,14 +174,13 @@ void ref_mlwq_decrypt(uint8_t *msg, const mlwq_sk *sk, const mlwq_ciphertext *ct
 
 void ref_mlwq_kem_keygen(mlwq_pk *pk, mlwq_kem_sk *sk) {
     memset(pk, 0, sizeof(mlwq_pk));
-    uint8_t seed_A[32], seed_d[32];
+    uint8_t seed_A[32];
     random_bytes(seed_A, 32);
-    random_bytes(seed_d, 32);
 
     // memset(seed_A,0,32);
     // memset(seed_d,0,32);
 
-    ref_mlwq_keygen(pk, &sk->pke_sk, seed_A, seed_d);
+    ref_mlwq_keygen(pk, &sk->pke_sk, seed_A);
     
     sk->pk = *pk; 
     shake128(sk->h_pk, 32, (uint8_t*)pk, sizeof(mlwq_pk));
