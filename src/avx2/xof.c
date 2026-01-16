@@ -121,13 +121,15 @@ void avx_xof_expand_matrix(poly_matrix *A, const uint8_t *seed) {
             ctr[k] = rej_uniform_avx(poly_ptrs[k], out[k]);
         }
 
-        for (unsigned int k = count; k < 4; k++) {
+        unsigned int active_lanes = count;
+        for (unsigned int k = active_lanes; k < 4; k++) {
             ctr[k] = MLWQ_N;
         }
 
-        while (1) {
-            int pending = 0;
-            for (unsigned int k = 0; k < count; k++) {
+        int pending = 1;
+        while (pending) {
+            pending = 0;
+            for (unsigned int k = 0; k < active_lanes; k++) {
                 if (ctr[k] < MLWQ_N) {
                     pending = 1;
                     break;
@@ -138,7 +140,7 @@ void avx_xof_expand_matrix(poly_matrix *A, const uint8_t *seed) {
             }
             shake128x4_squeezeblocks(more[0], more[1], more[2], more[3], 1, &state);
 
-            for (unsigned int k = 0; k < count; k++) {
+            for (unsigned int k = 0; k < active_lanes; k++) {
                 unsigned int local_pos = 0;
                 if (ctr[k] < MLWQ_N) {
                     ctr[k] = rej_uniform_avx2(poly_ptrs[k], more[k], SHAKE128_RATE, ctr[k], &local_pos);
