@@ -6,6 +6,8 @@
 #include "../common/fips202.h"
 #include "../common/params.h"
 
+extern void avx_polyvec_getnoise_eta1(poly_vec *r, const uint8_t seed[32], uint8_t nonce_base);
+
 // =========================================================================
 // AVX2 CBD3 implementation reused for AVX512 noise sampling
 // =========================================================================
@@ -145,6 +147,10 @@ void avx512_poly_getnoise_eta1(poly *r, const uint8_t seed[32], uint8_t nonce) {
 }
 
 void avx512_polyvec_getnoise_eta1(poly_vec *r, const uint8_t seed[32], uint8_t nonce_base) {
+    if (MLWQ_K < 8) {
+        avx_polyvec_getnoise_eta1(r, seed, nonce_base);
+        return;
+    }
     int i = 0;
     while (i + 7 < MLWQ_K) {
         avx512_poly_getnoise_eta1_8x(&r->vec[i + 0],

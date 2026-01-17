@@ -2,6 +2,7 @@
 #include <string.h>
 #include "xof.h"
 #include "fips202x8.h"
+#include "../avx2/xof.h"
 #include "../avx2/rejsample.h"
 #include "../common/fips202.h"
 #include "../common/params.h"
@@ -116,6 +117,10 @@ static void complete_rejection_x8(keccakx8_state *state,
 // =========================================================================
 void avx512_xof_expand_matrix(poly_matrix *A, const uint8_t *seed) {
     unsigned int total_polys = MLWQ_K * MLWQ_K;
+    if (total_polys < 8) {
+        avx_xof_expand_matrix(A, seed);
+        return;
+    }
     unsigned int batch_idx = 0;
     unsigned int row = batch_idx / MLWQ_K;
     unsigned int col = batch_idx % MLWQ_K;
@@ -175,6 +180,10 @@ void avx512_xof_expand_matrix(poly_matrix *A, const uint8_t *seed) {
 // 2. 向量生成 (8-way 批处理，通过 8-lane SHAKE 实现)
 // =========================================================================
 void avx512_xof_expand_poly_vec(poly_vec *v, const uint8_t *seed, int32_t modulus) {
+    if (MLWQ_K < 8) {
+        avx_xof_expand_poly_vec(v, seed, modulus);
+        return;
+    }
     const unsigned int nblocks = (MLWQ_N * 2 + SHAKE128_RATE - 1) / SHAKE128_RATE;
     unsigned int batch_idx = 0;
     uint8_t seeds[8][33];

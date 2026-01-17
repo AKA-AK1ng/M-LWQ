@@ -16,9 +16,6 @@ static void derive_seed_d(uint8_t *seed_d, const uint8_t *seed_a) {
     shake128(seed_d, 32, input, sizeof(input));
 }
 
-// 引入并行哈希头文件 (复用 AVX2 4x SHAKE 与 CBD 采样)
-#include "fips202x4.h"
-
 extern void avx_poly_tobytes(uint8_t *r, const poly *a);
 extern void avx_poly_frombytes(poly *r, const uint8_t *a);
 extern void avx_poly_compress_u(uint8_t *r, const poly *a);

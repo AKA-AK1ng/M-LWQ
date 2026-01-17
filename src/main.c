@@ -60,6 +60,8 @@ extern void avx_mlwq_decrypt(uint8_t *msg, const mlwq_sk *sk, const mlwq_ciphert
 extern void avx512_xof_expand_matrix(poly_matrix *A, const uint8_t *seed);
 extern void avx512_xof_expand_poly_vec(poly_vec *v, const uint8_t *seed, int32_t modulus);
 extern void avx512_xof_expand_poly(poly *v, const uint8_t *seed, int32_t modulus);
+extern void avx512_poly_getnoise_eta1(poly *r, const uint8_t seed[32], uint8_t nonce);
+extern void avx512_poly_getnoise_eta1(poly *r, const uint8_t seed[32], uint8_t nonce);
 extern void avx512_mlwq_keygen(mlwq_pk *pk, mlwq_sk *sk, const uint8_t *seed_A);
 extern void avx512_mlwq_encrypt(mlwq_ciphertext *ct, const mlwq_pk *pk, const uint8_t *msg, const uint8_t *seed_ct);
 extern void avx512_mlwq_decrypt(uint8_t *msg, const mlwq_sk *sk, const mlwq_ciphertext *ct);
@@ -165,7 +167,7 @@ static void run_microbench_avx2(void) {
 
     for (int i = 0; i < MICROBENCH_ROUNDS; i++) {
         t[i] = start_cycles();
-        avx_poly_getnoise_eta1(&p, seed, 0);
+        avx512_poly_getnoise_eta1(&p, seed, 0);
         t[i] = stop_cycles() - t[i];
     }
     print_microbench("poly_getnoise_eta1:", t, MICROBENCH_ROUNDS);
@@ -316,7 +318,7 @@ static void run_microbench_avx512(void) {
 
     for (int i = 0; i < MICROBENCH_ROUNDS; i++) {
         t[i] = start_cycles();
-        avx_poly_getnoise_eta1(&p, seed, 0);
+        avx512_poly_getnoise_eta1(&p, seed, 0);
         t[i] = stop_cycles() - t[i];
     }
     print_microbench("poly_getnoise_eta1:", t, MICROBENCH_ROUNDS);
