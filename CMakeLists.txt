@@ -20,6 +20,7 @@ include_directories(src)
 # [建议] 显式包含 avx2 目录，防止汇编找不到 consts.h
 include_directories(src/avx2)
 include_directories(src/avx512)
+include_directories(src/avx512/keccak8x)
 
 # 1. Common
 file(GLOB COMMON_SRC "src/common/*.c")
@@ -39,7 +40,7 @@ add_library(mlwq_avx2 STATIC ${AVX_SRC})
 target_link_libraries(mlwq_avx2 mlwq_common)
 
 # 3. AVX512 (8-way SHAKE batching)
-file(GLOB AVX512_SRC CONFIGURE_DEPENDS "src/avx512/*.c")
+file(GLOB AVX512_SRC CONFIGURE_DEPENDS "src/avx512/*.c" "src/avx512/keccak8x/*.c")
 add_library(mlwq_avx512 STATIC ${AVX512_SRC})
 target_link_libraries(mlwq_avx512 mlwq_common mlwq_avx2)
 if(NOT MSVC)

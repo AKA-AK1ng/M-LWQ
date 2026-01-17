@@ -1,7 +1,7 @@
 #include <stdint.h>
 #include <string.h>
 #include "xof.h"
-#include "../avx2/fips202x4.h"
+#include "fips202x8.h"
 #include "../avx2/rejsample.h"
 #include "../common/fips202.h"
 #include "../common/params.h"
@@ -52,26 +52,34 @@ static unsigned int rej_uniform_avx2(int16_t *r,
     return ctr;
 }
 
-static void shake128x4_init_and_squeeze(keccakx4_state *state,
+static void shake128x8_init_and_squeeze(keccakx8_state *state,
                                         const uint8_t *in0,
                                         const uint8_t *in1,
                                         const uint8_t *in2,
                                         const uint8_t *in3,
+                                        const uint8_t *in4,
+                                        const uint8_t *in5,
+                                        const uint8_t *in6,
+                                        const uint8_t *in7,
                                         unsigned int inlen,
                                         uint8_t *out0,
                                         uint8_t *out1,
                                         uint8_t *out2,
                                         uint8_t *out3,
+                                        uint8_t *out4,
+                                        uint8_t *out5,
+                                        uint8_t *out6,
+                                        uint8_t *out7,
                                         unsigned int nblocks) {
-    shake128x4_absorb_once(state, in0, in1, in2, in3, inlen);
-    shake128x4_squeezeblocks(out0, out1, out2, out3, nblocks, state);
+    shake128x8_absorb_once(state, in0, in1, in2, in3, in4, in5, in6, in7, inlen);
+    shake128x8_squeezeblocks(out0, out1, out2, out3, out4, out5, out6, out7, nblocks, state);
 }
 
-static void complete_rejection_x4(keccakx4_state *state,
-                                  int16_t *poly_ptrs[4],
-                                  unsigned int ctr[4]) {
-    uint8_t more[4][SHAKE128_RATE] __attribute__((aligned(32)));
-    unsigned int active_lanes = 4;
+static void complete_rejection_x8(keccakx8_state *state,
+                                  int16_t *poly_ptrs[8],
+                                  unsigned int ctr[8]) {
+    uint8_t more[8][SHAKE128_RATE] __attribute__((aligned(64)));
+    unsigned int active_lanes = 8;
     int pending = 1;
 
     for (unsigned int k = 0; k < active_lanes; k++) {
@@ -91,7 +99,8 @@ static void complete_rejection_x4(keccakx4_state *state,
         if (!pending) {
             break;
         }
-        shake128x4_squeezeblocks(more[0], more[1], more[2], more[3], 1, state);
+        shake128x8_squeezeblocks(more[0], more[1], more[2], more[3],
+                                 more[4], more[5], more[6], more[7], 1, state);
 
         for (unsigned int k = 0; k < active_lanes; k++) {
             unsigned int local_pos = 0;
@@ -103,7 +112,7 @@ static void complete_rejection_x4(keccakx4_state *state,
 }
 
 // =========================================================================
-// 1. 矩阵生成 (8-way 批处理，通过两组 4x SHAKE 实现)
+// 1. 矩阵生成 (8-way 批处理，通过 8-lane SHAKE 实现)
 // =========================================================================
 void avx512_xof_expand_matrix(poly_matrix *A, const uint8_t *seed) {
     unsigned int total_polys = MLWQ_K * MLWQ_K;
@@ -113,7 +122,7 @@ void avx512_xof_expand_matrix(poly_matrix *A, const uint8_t *seed) {
 
     uint8_t seeds[8][34];
     const uint8_t *in_ptrs[8];
-    uint8_t out[8][REJ_UNIFORM_AVX_BUFLEN] __attribute__((aligned(32)));
+    uint8_t out[8][REJ_UNIFORM_AVX_BUFLEN] __attribute__((aligned(64)));
 
     while (batch_idx < total_polys) {
         unsigned int remain = total_polys - batch_idx;
@@ -137,14 +146,11 @@ void avx512_xof_expand_matrix(poly_matrix *A, const uint8_t *seed) {
             in_ptrs[k] = seeds[0];
         }
 
-        keccakx4_state state0;
-        keccakx4_state state1;
-
-        shake128x4_init_and_squeeze(&state0,
-                                    in_ptrs[0], in_ptrs[1], in_ptrs[2], in_ptrs[3], 34,
-                                    out[0], out[1], out[2], out[3], REJ_UNIFORM_AVX_NBLOCKS);
-        shake128x4_init_and_squeeze(&state1,
+        keccakx8_state state;
+        shake128x8_init_and_squeeze(&state,
+                                    in_ptrs[0], in_ptrs[1], in_ptrs[2], in_ptrs[3],
                                     in_ptrs[4], in_ptrs[5], in_ptrs[6], in_ptrs[7], 34,
+                                    out[0], out[1], out[2], out[3],
                                     out[4], out[5], out[6], out[7], REJ_UNIFORM_AVX_NBLOCKS);
 
         unsigned int ctr[8] = {0};
@@ -157,13 +163,7 @@ void avx512_xof_expand_matrix(poly_matrix *A, const uint8_t *seed) {
             ctr[k] = rej_uniform_avx(poly_ptrs[k], out[k]);
         }
 
-        int16_t *poly_ptrs0[4] = {poly_ptrs[0], poly_ptrs[1], poly_ptrs[2], poly_ptrs[3]};
-        int16_t *poly_ptrs1[4] = {poly_ptrs[4], poly_ptrs[5], poly_ptrs[6], poly_ptrs[7]};
-        unsigned int ctr0[4] = {ctr[0], ctr[1], ctr[2], ctr[3]};
-        unsigned int ctr1[4] = {ctr[4], ctr[5], ctr[6], ctr[7]};
-
-        complete_rejection_x4(&state0, poly_ptrs0, ctr0);
-        complete_rejection_x4(&state1, poly_ptrs1, ctr1);
+        complete_rejection_x8(&state, poly_ptrs, ctr);
 
         batch_idx += count;
         row = r;
@@ -172,14 +172,14 @@ void avx512_xof_expand_matrix(poly_matrix *A, const uint8_t *seed) {
 }
 
 // =========================================================================
-// 2. 向量生成 (8-way 批处理，通过两组 4x SHAKE 实现)
+// 2. 向量生成 (8-way 批处理，通过 8-lane SHAKE 实现)
 // =========================================================================
 void avx512_xof_expand_poly_vec(poly_vec *v, const uint8_t *seed, int32_t modulus) {
     const unsigned int nblocks = (MLWQ_N * 2 + SHAKE128_RATE - 1) / SHAKE128_RATE;
     unsigned int batch_idx = 0;
     uint8_t seeds[8][33];
     const uint8_t *in_ptrs[8];
-    uint8_t out[8][SHAKE128_RATE * nblocks];
+    uint8_t out[8][SHAKE128_RATE * nblocks] __attribute__((aligned(64)));
     uint16_t mod = (uint16_t)modulus;
     uint32_t recip = (uint32_t)(((uint64_t)1 << 32) / mod);
 
@@ -197,13 +197,11 @@ void avx512_xof_expand_poly_vec(poly_vec *v, const uint8_t *seed, int32_t modulu
             in_ptrs[k] = seeds[0];
         }
 
-        keccakx4_state state0;
-        keccakx4_state state1;
-        shake128x4_init_and_squeeze(&state0,
-                                    in_ptrs[0], in_ptrs[1], in_ptrs[2], in_ptrs[3], 33,
-                                    out[0], out[1], out[2], out[3], nblocks);
-        shake128x4_init_and_squeeze(&state1,
+        keccakx8_state state;
+        shake128x8_init_and_squeeze(&state,
+                                    in_ptrs[0], in_ptrs[1], in_ptrs[2], in_ptrs[3],
                                     in_ptrs[4], in_ptrs[5], in_ptrs[6], in_ptrs[7], 33,
+                                    out[0], out[1], out[2], out[3],
                                     out[4], out[5], out[6], out[7], nblocks);
 
         for (unsigned int k = 0; k < count; k++) {
