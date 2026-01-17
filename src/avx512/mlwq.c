@@ -1,7 +1,8 @@
 #include "mlwq.h"
 #include "poly.h"
-#include "ntt.h"
+#include "ntt_avx512.h"
 #include "avx512/xof.h"
+#include "noise.h"
 #include "align.h"
 #include "../common/random.h"
 #include "../common/fips202.h"
@@ -24,8 +25,6 @@ extern void avx_poly_compress_u(uint8_t *r, const poly *a);
 extern void avx_poly_decompress_u(poly *r, const uint8_t *a);
 extern void avx_poly_compress_v(uint8_t *r, const poly *a);
 extern void avx_poly_decompress_v(poly *r, const uint8_t *a);
-extern void avx_poly_getnoise_eta1(poly *r, const uint8_t seed[32], uint8_t nonce);
-extern void avx_polyvec_getnoise_eta1(poly_vec *r, const uint8_t seed[32], uint8_t nonce_base);
 extern void avx_poly_matrix_vec_mul_ntt(poly_vec *res, const poly_matrix *A_ntt, const poly_vec *s_ntt);
 extern void avx_poly_matrix_vec_mul(poly_vec *res, const poly_matrix *A, const poly_vec *s);
 extern void avx_poly_vec_transpose_mul_ntt(poly *res, const poly_vec *a_ntt, const poly_vec *b_ntt);
@@ -36,7 +35,6 @@ extern void avx_poly_quantize(poly *res, const poly *v, const poly *d, int32_t P
 extern void avx_poly_dequantize(poly *res, const poly *b, int32_t P);
 extern void avx_poly_add(poly *res, const poly *a, const poly *b);
 extern void avx_poly_sub(poly *res, const poly *a, const poly *b);
-extern void avx_ntt(int16_t *r);
 
 // -------------------------------------------------------------------------
 // PKE KeyGen
@@ -47,13 +45,13 @@ void avx512_mlwq_keygen(mlwq_pk *pk, mlwq_sk *sk, const uint8_t *seed_A) {
     poly_matrix A_ntt = A;
     for (int i = 0; i < MLWQ_K; ++i) {
         for (int j = 0; j < MLWQ_K; ++j) {
-            avx_ntt(A_ntt.row[i].vec[j].coeffs);
+            avx512_ntt(A_ntt.row[i].vec[j].coeffs);
         }
     }
 
     uint8_t seed_s[32];
     random_bytes(seed_s, 32);
-    avx_polyvec_getnoise_eta1(&sk->s, seed_s, 0);
+    avx512_polyvec_getnoise_eta1(&sk->s, seed_s, 0);
 
     poly_vec d_pk;
     uint8_t d_seed[32];
@@ -66,7 +64,7 @@ void avx512_mlwq_keygen(mlwq_pk *pk, mlwq_sk *sk, const uint8_t *seed_A) {
     poly_vec As;
     poly_vec s_ntt = sk->s;
     for (int i = 0; i < MLWQ_K; ++i) {
-        avx_ntt(s_ntt.vec[i].coeffs);
+        avx512_ntt(s_ntt.vec[i].coeffs);
     }
     avx_poly_matrix_vec_mul_ntt(&As, &A_ntt, &s_ntt);
 
@@ -98,7 +96,7 @@ void avx512_mlwq_encrypt(mlwq_ciphertext *ct, const mlwq_pk *pk, const uint8_t *
         A_ntt = A;
         for (int i = 0; i < MLWQ_K; ++i) {
             for (int j = 0; j < MLWQ_K; ++j) {
-                avx_ntt(A_ntt.row[i].vec[j].coeffs);
+                avx512_ntt(A_ntt.row[i].vec[j].coeffs);
             }
         }
         cached_A_ntt = A_ntt;
@@ -107,11 +105,11 @@ void avx512_mlwq_encrypt(mlwq_ciphertext *ct, const mlwq_pk *pk, const uint8_t *
     }
 
     poly_vec r;
-    avx_polyvec_getnoise_eta1(&r, seed_ct, 0);
+    avx512_polyvec_getnoise_eta1(&r, seed_ct, 0);
 
     poly_vec r_ntt = r;
     for (int i = 0; i < MLWQ_K; ++i) {
-        avx_ntt(r_ntt.vec[i].coeffs);
+        avx512_ntt(r_ntt.vec[i].coeffs);
     }
 
     poly_vec d_u;
@@ -140,7 +138,7 @@ void avx512_mlwq_encrypt(mlwq_ciphertext *ct, const mlwq_pk *pk, const uint8_t *
         }
         cached_b_ntt = b_deq;
         for (int i = 0; i < MLWQ_K; ++i) {
-            avx_ntt(cached_b_ntt.vec[i].coeffs);
+            avx512_ntt(cached_b_ntt.vec[i].coeffs);
         }
         cached_b_q = pk->b_q;
         cached_b_valid = 1;
@@ -176,7 +174,7 @@ void avx512_mlwq_decrypt(uint8_t *msg, const mlwq_sk *sk, const mlwq_ciphertext 
         cached_s = sk->s;
         cached_s_ntt = sk->s;
         for (int i = 0; i < MLWQ_K; ++i) {
-            avx_ntt(cached_s_ntt.vec[i].coeffs);
+            avx512_ntt(cached_s_ntt.vec[i].coeffs);
         }
         cached_s_valid = 1;
     }
@@ -192,7 +190,7 @@ void avx512_mlwq_decrypt(uint8_t *msg, const mlwq_sk *sk, const mlwq_ciphertext 
         cached_u = u_deq;
         cached_u_ntt = u_deq;
         for (int i = 0; i < MLWQ_K; ++i) {
-            avx_ntt(cached_u_ntt.vec[i].coeffs);
+            avx512_ntt(cached_u_ntt.vec[i].coeffs);
         }
         cached_u_valid = 1;
     }
