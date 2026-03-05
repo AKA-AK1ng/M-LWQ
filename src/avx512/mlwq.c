@@ -56,7 +56,7 @@ void avx512_mlwq_keygen(mlwq_pk *pk, mlwq_sk *sk, const uint8_t *seed_A) {
     derive_seed_d(d_seed, seed_A);
     memcpy(d_uniform_seed, d_seed, 32);
     d_uniform_seed[32] = 0xFF;
-    avx512_xof_expand_poly_vec(&d_pk, d_uniform_seed, MLWQ_Q / P_PK);
+    avx512_xof_expand_poly_vec(&d_pk, d_uniform_seed, MLWQ_Q);
 
     poly_vec As;
     poly_vec s_ntt = sk->s;
@@ -114,9 +114,9 @@ void avx512_mlwq_encrypt(mlwq_ciphertext *ct, const mlwq_pk *pk, const uint8_t *
     uint8_t d_seed[33];
     memcpy(d_seed, seed_ct, 32);
     d_seed[32] = MLWQ_K;
-    avx512_xof_expand_poly_vec(&d_u, d_seed, MLWQ_Q / P_U);
+    avx512_xof_expand_poly_vec(&d_u, d_seed, MLWQ_Q);
     d_seed[32] = MLWQ_K + 1;
-    avx512_xof_expand_poly(&d_v, d_seed, MLWQ_Q / P_V);
+    avx512_xof_expand_poly(&d_v, d_seed, MLWQ_Q);
 
     poly_matrix At_ntt;
     for (int i = 0; i < MLWQ_K; ++i) {
