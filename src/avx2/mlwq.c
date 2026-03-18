@@ -196,7 +196,7 @@ void avx_mlwq_keygen(mlwq_pk *pk, mlwq_sk *sk, const uint8_t *seed_A) {
     derive_seed_d(d_seed, seed_A);
     memcpy(d_uniform_seed, d_seed, 32);
     d_uniform_seed[32] = 0xFF; // Domain separator to avoid collision with s
-    avx_xof_expand_poly_vec(&d_pk, d_uniform_seed, MLWQ_Q / P_PK);
+    avx_xof_expand_poly_vec(&d_pk, d_uniform_seed, MLWQ_Q);
     
     // 4. 计算 As + d (复用 NTT 域矩阵，避免重复变换)
     poly_vec As;
@@ -257,11 +257,11 @@ void avx_mlwq_encrypt(mlwq_ciphertext *ct, const mlwq_pk *pk, const uint8_t *msg
     uint8_t d_seed[33];
     memcpy(d_seed, seed_ct, 32); 
     d_seed[32] = MLWQ_K; 
-    avx_xof_expand_poly_vec(&d_u, d_seed, MLWQ_Q / P_U);
+    avx_xof_expand_poly_vec(&d_u, d_seed, MLWQ_Q);
     
     // 3. 生成 d_v (SHAKE128, XOF)
     d_seed[32] = MLWQ_K + 1;
-    avx_xof_expand_poly(&d_v, d_seed, MLWQ_Q / P_V);
+    avx_xof_expand_poly(&d_v, d_seed, MLWQ_Q);
 
     // 后续计算...
     poly_matrix At_ntt;
