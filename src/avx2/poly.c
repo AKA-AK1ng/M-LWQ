@@ -55,30 +55,15 @@ void avx_poly_sub(poly *res, const poly *a, const poly *b) {
     }
 }
 
-// [FIX] AVX2 极速量化: 消除除法，使用 vpmulhuw
+// [FIX] AVX2 量化
 void avx_poly_quantize(poly *res, const poly *v, const poly *d, int32_t P) {
-    // 预计算定点乘法因子 magic = floor(P * 2^16 / Q)
-    // 这样 (x * magic) >> 16 等价于 x * P / Q
-    int32_t magic_val = (P * 65536) / MLWQ_Q;
-    __m256i magic = _mm256_set1_epi16((int16_t)magic_val);
-    __m256i mask_vec = _mm256_set1_epi16((int16_t)(P - 1));
-
-    for(int i=0; i<MLWQ_N/16; ++i) {
-        __m256i vv = _mm256_load_si256((__m256i*)&v->coeffs[16*i]);
-        __m256i vd = _mm256_load_si256((__m256i*)&d->coeffs[16*i]);
-        
-        // 1. sum = v + d (直接加，暂不取模，因为后面要乘 P/Q)
-        // 注意：v 和 d 都是 [0, Q) 范围，相加最大 ~6658，远小于 int16 上限
-        __m256i sum = _mm256_add_epi16(vv, vd);
-
-        // 2. High Multiply: (sum * magic) >> 16
-        // _mm256_mulhi_epu16 是无符号高位乘法，完美符合 (a*b)>>16
-        __m256i floor_val = _mm256_mulhi_epu16(sum, magic);
-
-        // 3. Mask
-        __m256i q_res = _mm256_and_si256(floor_val, mask_vec);
-
-        _mm256_store_si256((__m256i*)&res->coeffs[16*i], q_res);
+    // d 现在按 [0, Q) 采样，量化使用 floor((v * P + d) / Q)。
+    // 这里优先保证正确性（尤其跨参数集），使用标量路径。
+    int32_t mask = P - 1;
+    for (int i = 0; i < MLWQ_N; ++i) {
+        int32_t temp = (int32_t)v->coeffs[i] * P + (int32_t)d->coeffs[i];
+        int32_t floor = temp / MLWQ_Q;
+        res->coeffs[i] = (int16_t)(floor & mask);
     }
 }
 
