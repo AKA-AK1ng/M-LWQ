@@ -88,12 +88,19 @@ Arith (v-su)         27668           9370            2.95x
 Decode               3662            3529            1.04x
 
 
->>> PART 2: Core Component Comparison (Quantize vs Sample)
+>>> PART 2: Fair Pipeline Comparison (MLWQ Dither Path vs Kyber-like Error Path)
 ----------------------------------------------------------------------------------------------
-Component  Mode       Quantize        Sample          Alg. Efficiency      AVX Improvement     
+Path       Mode       Sample/Gen         Add+Round          Total
 ----------------------------------------------------------------------------------------------
-PK / u     Scalar     246             3486            14.17x                 1.00x (Ref)         
-PK / u     AVX2       134             3370            25.15x                 1.84x
+MLWQ       Scalar     11128              246                11374
+MLWQ       AVX2       7090               134                7224
+KyberEq    Scalar     3486               246                3732
+KyberEq    AVX2       3370               134                3504
+
+  MLWQ Total Speedup      : 1.57x
+  KyberEq Total Speedup   : 1.06x
+  Scalar Fairness Ratio   : 3.05x (MLWQ/KyberEq)
+  AVX2 Fairness Ratio     : 2.06x (MLWQ/KyberEq)
 
 
 >>> PART 3: PKE Full Flow Summary (Total Time)
