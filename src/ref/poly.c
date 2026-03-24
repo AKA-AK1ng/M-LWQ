@@ -196,8 +196,10 @@ static inline int32_t fast_div_3329(int32_t val) {
 void ref_poly_quantize(poly *res, const poly *v, const poly *d, int32_t P) {
     int32_t mask = P - 1;
     for(int i = 0; i < MLWQ_N; ++i) {
-        int32_t val = (int32_t)v->coeffs[i] + d->coeffs[i];
-        int32_t temp = val * P;
+        // d 现在按 [0, Q) 采样，量化时使用:
+        // floor((v * P + d) / Q)
+        // 这样 d 作为细粒度抖动落在一个量化步长内，不会破坏解密正确性。
+        int32_t temp = (int32_t)v->coeffs[i] * P + (int32_t)d->coeffs[i];
         int32_t floor = fast_div_3329(temp);
         res->coeffs[i] = floor & mask;
     }
@@ -322,4 +324,3 @@ int ref_check_poly_eq(const poly *a, const poly *b) {
         if (a->coeffs[i] != b->coeffs[i]) return 0;
     return 1;
 }
-
