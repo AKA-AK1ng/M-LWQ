@@ -728,15 +728,32 @@ int main() {
     printf("%-20s %-15lu %-15lu %-.2fx\n", "Arith (v-su)", ar_dec_ref, ar_dec_avx, (double)ar_dec_ref/ar_dec_avx);
     printf("%-20s %-15lu %-15lu %-.2fx\n", "Decode", dc_ref, dc_avx, (double)dc_ref/dc_avx);
 
-    printf("\n\n>>> PART 2: Core Component Comparison (Quantize vs Sample)\n");
+    printf("\n\n>>> PART 2: Fair Pipeline Comparison (MLWQ Dither Path vs Kyber-like Error Path)\n");
     print_sep();
-    printf("%-10s %-10s %-15s %-15s %-20s %-20s\n", "Component", "Mode", "Quantize", "Sample", "Alg. Efficiency", "AVX Improvement");
+    printf("%-10s %-10s %-18s %-18s %-20s\n", "Path", "Mode", "Sample/Gen", "Add+Round", "Total");
     print_sep();
-    
-    uint64_t q_ref = avg(stats_ref.keygen_quantize); uint64_t s_ref = avg(stats_ref.keygen_sample);
-    uint64_t q_avx = avg(stats_avx.keygen_quantize); uint64_t s_avx = avg(stats_avx.keygen_sample);
-    printf("%-10s %-10s %-15lu %-15lu %-.2fx                 %-20s\n", "PK / u", "Scalar", q_ref, s_ref, (double)s_ref/q_ref, "1.00x (Ref)");
-    printf("%-10s %-10s %-15lu %-15lu %-.2fx                 %-.2fx\n", "PK / u", "AVX2", q_avx, s_avx, (double)s_avx/q_avx, (double)q_ref/q_avx);
+
+    uint64_t dgen_ref = avg(stats_ref.keygen_gen_dither);
+    uint64_t dgen_avx = avg(stats_avx.keygen_gen_dither);
+    uint64_t q_ref = avg(stats_ref.keygen_quantize);
+    uint64_t q_avx = avg(stats_avx.keygen_quantize);
+    uint64_t s_ref = avg(stats_ref.keygen_sample);
+    uint64_t s_avx = avg(stats_avx.keygen_sample);
+    uint64_t mlwq_total_ref = dgen_ref + q_ref;
+    uint64_t mlwq_total_avx = dgen_avx + q_avx;
+    uint64_t kyber_like_total_ref = s_ref + q_ref;
+    uint64_t kyber_like_total_avx = s_avx + q_avx;
+
+    printf("%-10s %-10s %-18lu %-18lu %-20lu\n", "MLWQ", "Scalar", dgen_ref, q_ref, mlwq_total_ref);
+    printf("%-10s %-10s %-18lu %-18lu %-20lu\n", "MLWQ", "AVX2", dgen_avx, q_avx, mlwq_total_avx);
+    printf("%-10s %-10s %-18lu %-18lu %-20lu\n", "KyberEq", "Scalar", s_ref, q_ref, kyber_like_total_ref);
+    printf("%-10s %-10s %-18lu %-18lu %-20lu\n", "KyberEq", "AVX2", s_avx, q_avx, kyber_like_total_avx);
+
+    printf("\n");
+    printf("  MLWQ Total Speedup      : %-.2fx\n", (double)mlwq_total_ref / mlwq_total_avx);
+    printf("  KyberEq Total Speedup   : %-.2fx\n", (double)kyber_like_total_ref / kyber_like_total_avx);
+    printf("  Scalar Fairness Ratio   : %-.2fx (MLWQ/KyberEq)\n", (double)mlwq_total_ref / kyber_like_total_ref);
+    printf("  AVX2 Fairness Ratio     : %-.2fx (MLWQ/KyberEq)\n", (double)mlwq_total_avx / kyber_like_total_avx);
 
     printf("\n\n>>> PART 3: PKE Full Flow Summary (Total Time)\n");
     print_sep();
