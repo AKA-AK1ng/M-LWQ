@@ -24,8 +24,30 @@ add_compile_options(
     -fdata-sections
 )
 
-# 包含头文件路径
-include_directories(src)
+# STM32 HAL 宏定义 (使 stm32f4xx_hal.h 和 random.c 正确展开)
+add_compile_definitions(
+    STM32F407xx
+    USE_HAL_DRIVER
+)
+
+# STM32 HAL 头文件路径 (根据 CubeMX 生成的 Drivers 目录结构)
+# 若路径不同，可在调用 cmake 时覆盖: -DHAL_DRIVER_DIR=<path>
+if(NOT DEFINED HAL_DRIVER_DIR)
+    set(HAL_DRIVER_DIR "${CMAKE_SOURCE_DIR}/Drivers")
+endif()
+
+include_directories(
+    src
+    ${HAL_DRIVER_DIR}/STM32F4xx_HAL_Driver/Inc
+    ${HAL_DRIVER_DIR}/CMSIS/Device/ST/STM32F4xx/Include
+    ${HAL_DRIVER_DIR}/CMSIS/Include
+)
+
+# 启动文件 (CubeMX 生成, 负责向量表/堆栈初始化)
+set(STARTUP_FILE "${CMAKE_SOURCE_DIR}/startup_stm32f407xx.s")
+
+# 链接脚本 (CubeMX 生成, 定义 FLASH/RAM 内存布局)
+set(LINKER_SCRIPT "${CMAKE_SOURCE_DIR}/STM32F407ZGTx_FLASH.ld")
 
 # 1. Common
 file(GLOB COMMON_SRC "src/common/*.c")
@@ -38,9 +60,11 @@ target_link_libraries(mlwq_ref mlwq_common)
 
 # 3. AVX2 已禁用 — AVX2 为 x86 专属指令集，不支持 ARM Cortex-M4
 
-# 4. Main Benchmark
-add_executable(mlwq_bench src/main.c)
+# 4. Main Benchmark (包含启动文件以生成可烧录的 ELF 固件)
+add_executable(mlwq_bench src/main.c ${STARTUP_FILE})
 target_link_libraries(mlwq_bench mlwq_ref mlwq_common)
 
-# 链接器: 去除未使用的段以减小固件体积
-set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--gc-sections")
+# 链接器: 指定 STM32 内存布局脚本，去除未使用的段以减小固件体积
+set(CMAKE_EXE_LINKER_FLAGS
+    "${CMAKE_EXE_LINKER_FLAGS} -T${LINKER_SCRIPT} -Wl,--gc-sections"
+)

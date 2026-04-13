@@ -9,9 +9,21 @@
 #if defined(__linux__)
 #include <sys/random.h>
 #endif
+#if defined(STM32F407xx)
+#include "stm32f4xx_hal.h"
+static RNG_HandleTypeDef hrng;
+#endif
 
 void random_init() {
+#if defined(STM32F407xx)
+    __HAL_RCC_RNG_CLK_ENABLE();
+    hrng.Instance = RNG;
+    if (HAL_RNG_Init(&hrng) != HAL_OK) {
+        while (1) {}
+    }
+#else
     // no-op: system RNG does not require initialization
+#endif
 }
 
 #if defined(__linux__) || defined(__APPLE__) || defined(__unix__)
@@ -58,6 +70,19 @@ void random_bytes(uint8_t *out, size_t len) {
             abort();
         }
         offset += (size_t)n;
+    }
+#elif defined(STM32F407xx)
+    size_t offset = 0;
+    while (offset < len) {
+        uint32_t val;
+        if (HAL_RNG_GenerateRandomNumber(&hrng, &val) != HAL_OK) {
+            while (1) {}
+        }
+        size_t chunk = len - offset;
+        if (chunk > 4) chunk = 4;
+        for (size_t i = 0; i < chunk; i++) {
+            out[offset++] = (uint8_t)(val >> (8 * i));
+        }
     }
 #else
 #error "Unsupported platform for random_bytes"
