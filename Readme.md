@@ -164,16 +164,18 @@ M_LWQ_v1_c_imple/
             ├── KeccakP-brg_endian.h
             └── KeccakP-SIMD256-config.h
 ```
-<!-- ## 6. Academic Citation
-If you use this work in your research, please cite the accompanying paper:
-```
+## 6. Academic Citation and Provenance
+
+This repository contains the implementation accompanying the following paper:
+
+```bibtex
 @misc{cryptoeprint:2024/714,
-      author = {Shanxiang Lyu and Ling Liu and Cong Ling},
-      title = {Learning With Quantization: A Ciphertext Efficient Lattice Problem with Tight Security Reduction from {LWE}},
-      howpublished = {Cryptology {ePrint} Archive, Paper 2024/714},
-      year = {2024},
-      url = {[https://eprint.iacr.org/2024/714](https://eprint.iacr.org/2024/714)}
+  author       = {Shanxiang Lyu and Ling Liu and Cong Ling},
+  title        = {Learning With Quantization: A Ciphertext Efficient Lattice Problem with Tight Security Reduction from {LWE}},
+  howpublished = {Cryptology {ePrint} Archive, Paper 2024/714},
+  year         = {2024},
+  url          = {https://eprint.iacr.org/2024/714}
 }
-``` -->
+```
 <!-- ## 7. License
 This project is licensed under the MIT License. -->
