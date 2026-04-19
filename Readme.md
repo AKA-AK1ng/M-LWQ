@@ -1,49 +1,61 @@
-# M-LWQ-C: High-Performance C Implementation with AVX2 Acceleration
-This repository contains an optimized C implementation of the M-LWQ (Module-Learning With Quantization) Public Key Encryption (PKE) scheme and Key Encapsulation Mechanism (KEM).
-It features AVX2 SIMD acceleration and Number Theoretic Transform (NTT), providing high-performance post-quantum cryptographic primitives with tight security reductions.
-## 1. Core Concept (M-LWQ)
- M-LWQ is a novel post-quantum cryptosystem built on the Learning With Quantization (LWQ) problem. It replaces the randomized error sampling of LWE with a deterministic dithered quantization process achieving:
- - Tight Security: A tight security reduction from the standard Module-LWE problem.
- - Bandwidth Efficiency: State-of-the-art compactness, achieving approximately 20% smaller public keys compared to Kyber-512.
- Algorithmic Simplicity: Eliminates the need for high-precision Gaussian sampling by using compensated dithering.
- 
+# MAMBA-Viper: High-Performance C Implementation with AVX2 Acceleration
+
+This repository contains an optimized C implementation of the MAMBA-Viper public-key encryption and key-encapsulation scheme.
+The design is built on the MLWQ-Z hardness foundation and includes both reference and AVX2-optimized implementations.
+It features AVX2 SIMD acceleration and Number Theoretic Transform (NTT), targeting high-performance post-quantum cryptographic implementation and benchmarking.
+
+**Contact:** make2024@stu2024.jnu.edu.cn
+
+## 1. Core Concept
+
+MAMBA-Viper is a lattice-based encryption and key-encapsulation design built on the MLWQ-Z framework.
+At a high level, the scheme replaces conventional sampled error injection with a public quantization mechanism, aiming to combine compact communication, efficient implementation, and reduction-based security analysis.
+
+Main design goals include:
+
+- reduction-based security from the underlying MLWQ-Z problem
+- compact public keys and ciphertexts through quantization-based compression
+- high-performance implementation under NTT-friendly prime moduli and AVX2 acceleration
+
 ## 2. Implementation Features
 
- 🚀 Optimization Highlights
- - Vectorized Arithmetic: Explicit AVX2 Intrinsics for polynomial operations, achieving over 2.5x speedup in core matrix-vector multiplications.
- - Fast NTT: Optimized Number Theoretic Transform for $R_q$ with $n=256, q=3329$, utilizing Barrett Reduction for rapid modular arithmetic.
- - Dual-Mode Benchmark: Built-in suite to compare Scalar C vs. AVX2 performance in real-time.
- - Zero-Bandwidth Dithering: Dither vectors are derived deterministically from public seeds to maintain compactness.
+### Optimization Highlights
 
- 🛠 Supported Algorithms
- M-LWQ.PKE: IND-CPA secure Public Key Encryption.
- M-LWQ.KEM: IND-CCA2 secure Key Encapsulation Mechanism via the Fujisaki-Okamoto transform.
+- Vectorized arithmetic with explicit AVX2 intrinsics for core polynomial and module operations
+- Fast NTT over \(R_q\) with \(n = 256\) and \(q = 3329\)
+- Dual-mode benchmarking for reference C and AVX2 implementations
+- Deterministic public-seed expansion for matrix generation and dither derivation
+
+### Supported Algorithms
+
+- `MAMBA-Viper.PKE` for IND-CPA public-key encryption
+- `MAMBA-Viper.KEM` for IND-CCA2 key encapsulation via the Fujisaki-Okamoto transform
 
 ## 3. Build and Run
-Dependencies
- - Compiler: GCC or Clang (supporting C11).
- - Hardware: CPU with AVX2 support.
- - Build Tool: CMake 3.10+.
+
+### Dependencies
+
+- Compiler: GCC or Clang with C11 support
+- Hardware: CPU with AVX2 support for the optimized implementation
+- Build tool: CMake 3.10 or later
+
 ### Compilation
 
-The `CMakeLists.txt` is configured to automatically enable `-mavx2`, `-mfma`, and `-O3` optimizations.
+The `CMakeLists.txt` is configured to enable `-mavx2`, `-mfma`, and `-O3` for the optimized build.
 
 ```bash
-# 1. Clone the repository
-git clone [https://github.com/Make1205/M-LWQ.git](https://github.com/Make1205/M-LWQ.git)
+git clone https://github.com/Make1205/MAMBA-Viper.git
 cd M-LWQ
 
-# 2. Create build directory
 mkdir build
 cd build
 
-# 3. Configure and Build
 cmake ..
 make
 ./mlwq_bench
-
 ```
-## 4. Expected Output
+
+# 4. Expected Output
 
 
 The program will run the full PKE suite in Scalar Mode followed by AVX2 Mode, verifying decryption correctness in every round, and finally producing a speedup report.
